@@ -35,7 +35,7 @@ from .task_config import TaskConfig, load_task
 
 app = typer.Typer(
     name="seedmill",
-    help="Config-driven synthetic data generator (local models).",
+    help="Config-driven synthetic data generator (local or hosted models).",
     add_completion=False,
 )
 console = Console()
