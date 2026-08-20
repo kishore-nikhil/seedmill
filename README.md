@@ -38,18 +38,29 @@ seedmill/engine.py         ← one generation loop
 
 ## Install
 
-Requires Python 3.10+ and a local model server — either
+Requires Python 3.10+ and something to generate against: a local server —
 [Ollama](https://ollama.com) or a llama.cpp `llama-server` on its
-OpenAI-compatible endpoint.
+OpenAI-compatible endpoint — or a hosted API key (see [Backends](#backends)).
+
+```bash
+pip install seedmill
+seedmill init          # scaffolds a runnable example task to edit
+
+# optional: embedding-based near-duplicate filtering (pulls torch)
+pip install "seedmill[embeddings]"
+```
+
+Or clone, to get the worked tasks in `config/tasks/` as well:
 
 ```bash
 git clone https://github.com/kishore-nikhil/seedmill
 cd seedmill
 pip install -e .
-
-# optional: embedding-based near-duplicate filtering (pulls torch)
-pip install -e ".[embeddings]"
 ```
+
+The wheel ships the engine and the CLI, not the task YAMLs — those are
+yours to write. `seedmill init` writes a self-contained one (vocabulary and
+seeds inline) to start from.
 
 Paths inside a task YAML (`vocabularies`, `seeds`, `hooks`) resolve against
 your working directory first, then against the task YAML's own directory. The
@@ -222,10 +233,11 @@ Both were built for real datasets, not as demos.
 
 ## Adding a use case
 
-1. Copy an existing task YAML, change fields/prompts/vocab.
-2. Only add a hooks file if you need custom export formats or
+1. `seedmill init your_task` — or copy an existing task YAML.
+2. Change fields/prompts/vocab.
+3. Only add a hooks file if you need custom export formats or
    post-processing.
-3. `seedmill generate -t config/tasks/your_task.yaml`
+4. `seedmill generate -t config/tasks/your_task.yaml`
 
 ## Notes
 
@@ -255,6 +267,15 @@ pip install -e ".[dev]"
 ruff check .
 pytest
 ```
+
+Releases go to PyPI through
+[Trusted Publishing](https://docs.pypi.org/trusted-publishers/) — no API
+token lives in this repo. Bump `version` in `pyproject.toml`, land it, then
+tag: `git tag v0.1.0 && git push --tags`. The workflow re-runs CI, refuses
+to build if the tag disagrees with the packaged version, and smoke-tests
+the built wheel outside the repo before uploading. `workflow_dispatch` on
+the same workflow publishes to TestPyPI instead — worth doing first, since
+a version number on PyPI can never be reused.
 
 The test suite is pure-function only — it never contacts a model and never
 imports the optional embeddings dependency.

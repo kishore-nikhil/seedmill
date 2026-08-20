@@ -1,0 +1,111 @@
+# Scaffolded by `seedmill init`. Self-contained on purpose: the vocabulary
+# and seeds are inline, so this runs as soon as a local model is up. Real
+# tasks usually point `vocabularies:` and `seeds:` at their own YAML files
+# (see the README) — that is the only difference.
+#
+# Run:
+#   seedmill generate -t config/tasks/example.yaml --limit 2 --per-seed 2
+#   seedmill export   -t config/tasks/example.yaml
+#   seedmill stats    -t config/tasks/example.yaml
+
+name: example
+description: >
+  Short customer-support messages labelled with the intent behind them.
+  A worked example of every section a task YAML can have.
+
+model:
+  # `ollama` needs no API key. For llama.cpp use `openai_compat` with
+  # base_url http://127.0.0.1:8080/v1; for a hosted model use `openai`
+  # with OPENAI_API_KEY set. See the Backends section of the README.
+  backend: ollama
+  model: gemma4:27b
+  base_url: http://localhost:11434
+  think: false
+
+vocabularies:
+  # Inline list. A field declaring `vocab: intents` is validated *and*
+  # constrained at decode time — the model cannot emit anything else.
+  intents:
+    - billing_question
+    - bug_report
+    - cancellation
+    - feature_request
+    - how_to
+    - praise
+
+seeds:
+  # The coverage axis: the engine walks every seed and generates
+  # `per_seed` records for each, instead of free-running and collapsing
+  # onto whatever the model finds most typical.
+  values:
+    account: [login_trouble, password_reset, closing_account]
+    payments: [refund_request, wrong_charge, changing_plan]
+  group_field: topic        # group name → record.topic
+  value_field: situation    # seed value → record.situation
+  per_seed: 4
+  id_pattern: "{seed}_{counter:03d}"
+
+fields:
+  message:
+    type: str
+    min_length: 10
+    max_length: 200
+    description: What the customer actually typed, in their own words.
+  intent:
+    type: str
+    vocab: intents
+  urgency:
+    type: str
+    enum: [low, medium, high]
+
+# `rules:` goes here — declarative cross-field checks with auto-fix
+# (not_in, contains, disjoint, unique_items, exclusive_switch). This
+# schema has no cross-field relationship to enforce, so it has none; see
+# config/tasks/icon_classifier.yaml in the repo for a worked set.
+
+prompts:
+  system: |
+    You generate training data for a customer-support intent classifier.
+
+    Rules:
+    - Use ONLY intent labels from the provided vocabulary, exactly as written.
+    - "message" is what a real customer would type: 1-3 sentences, varied in
+      tone (terse, rambling, annoyed, polite) and in how much they explain.
+    - Do not name products, people, or companies.
+    - Output valid JSON only. No commentary, no markdown fences.
+  user: |
+    Topic: $group
+
+    Intent vocabulary (the ONLY allowed labels):
+    $vocab_intents
+
+    Generate exactly $n support messages about "$seed_readable". Each must be
+    a DIFFERENT phrasing or angle on that situation — not restatements of one
+    another. Different messages may carry different intents and urgencies.
+
+    Return a JSON object:
+    {"records": [{"message": str, "intent": str, "urgency": str}, ...]}
+  retry: |
+    Some or all of your records failed validation:
+    $errors
+
+    Regenerate exactly $n valid records. Every intent must appear EXACTLY as
+    written in the vocabulary. Output a JSON object with a "records" array only.
+
+generation:
+  batch_size: 4
+  max_retries: 2
+  temperature: 0.9
+  workers: 1
+  dedup:
+    fields: [message]
+    embeddings: false
+    threshold: 0.9
+
+exports:
+  # Whole situations go to one split, so eval measures generalization to
+  # unseen situations rather than memorized phrasings.
+  split_by: situation
+  splits: {train: 0.8, val: 0.1, test: 0.1}
+  seed: 42
+  formats: [raw]
