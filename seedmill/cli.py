@@ -18,6 +18,7 @@ Also runnable from a clone without installing: `python -m seedmill ...`
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter
 from pathlib import Path
 
@@ -70,6 +71,25 @@ def _make_client(
             default_temperature=temperature,
             think=cfg.get("think", True),
         )
+    if backend == "openai":
+        from .openai_client import OpenAIClient
+
+        # No default model: hosted model names date fast and a wrong guess
+        # bills against the wrong one. The task YAML has to say.
+        name = model or cfg.get("model")
+        if not name:
+            raise typer.BadParameter("The openai backend needs `model:` in the task YAML")
+        try:
+            return OpenAIClient(
+                model=name,
+                base_url=base_url or cfg.get("base_url"),
+                api_key=cfg.get("api_key") or os.getenv("OPENAI_API_KEY", ""),
+                default_temperature=temperature,
+                strict=cfg.get("strict", True),
+                params=cfg.get("params") or {},
+            )
+        except ValueError as e:  # missing key — a config error, not a crash
+            raise typer.BadParameter(str(e)) from e
     raise typer.BadParameter(f"Unknown backend: {backend}")
 
 
@@ -80,7 +100,9 @@ def generate(
     model: str = typer.Option(None, "--model", "-m", help="Override task model"),
     base_url: str = typer.Option(None, "--base-url"),
     backend: str = typer.Option(
-        None, "--backend", help="Override backend: ollama | openai_compat (llama.cpp)"
+        None,
+        "--backend",
+        help="Override backend: ollama | openai_compat (llama.cpp) | openai (hosted)",
     ),
     per_seed: int = typer.Option(None, "--per-seed", help="Override records per seed"),
     count: int = typer.Option(None, "--count", "-n", help="Override total count (batch mode)"),
@@ -125,6 +147,9 @@ def generate(
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="green")
     for k, v in stats.items():
+        table.add_row(k.replace("_", " ").title(), str(v))
+    # Metered backends track tokens; local ones have no usage attribute.
+    for k, v in getattr(client, "usage", {}).items():
         table.add_row(k.replace("_", " ").title(), str(v))
     console.print(table)
 
