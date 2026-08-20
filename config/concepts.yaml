@@ -1,0 +1,166 @@
+# Seed concept groups for the interest→icon dataset.
+#
+# Generation iterates over these concepts (not free-form LLM invention) so
+# coverage is controlled and IDs are stable: <concept>_<counter>.
+# Each concept yields `per_concept` interest phrasings.
+#
+# Categories are the `category` field written into each record.
+
+concepts:
+  crafts:
+    - glassblowing
+    - pottery
+    - woodworking
+    - knitting
+    - crocheting
+    - origami
+    - candle_making
+    - soap_making
+    - leathercraft
+    - jewelry_making
+    - calligraphy
+    - scrapbooking
+    - quilting
+    - embroidery
+    - model_building
+
+  sports_fitness:
+    - rock_climbing
+    - yoga
+    - weightlifting
+    - cycling
+    - marathon_running
+    - surfing
+    - skateboarding
+    - martial_arts
+    - swimming
+    - tennis
+    - golf
+    - bouldering
+    - pilates
+    - archery
+    - fencing
+
+  music:
+    - guitar_playing
+    - piano_playing
+    - drumming
+    - singing
+    - djing
+    - music_production
+    - vinyl_collecting
+    - violin_playing
+    - songwriting
+    - choir
+
+  outdoors_nature:
+    - hiking
+    - camping
+    - birdwatching
+    - fishing
+    - foraging
+    - stargazing
+    - kayaking
+    - sailing
+    - beekeeping
+    - storm_chasing
+    - geocaching
+    - mushroom_hunting
+
+  food_drink:
+    - baking
+    - sourdough_bread
+    - coffee_brewing
+    - craft_beer
+    - wine_tasting
+    - grilling_bbq
+    - fermentation
+    - cake_decorating
+    - cheese_making
+    - mixology
+    - hot_sauce_making
+
+  tech:
+    - programming
+    - game_development
+    - robotics
+    - drone_flying
+    - three_d_printing
+    - home_automation
+    - mechanical_keyboards
+    - retro_computing
+    - ham_radio
+    - pc_building
+
+  arts_media:
+    - photography
+    - oil_painting
+    - watercolor
+    - street_art
+    - filmmaking
+    - animation
+    - creative_writing
+    - poetry
+    - theater_acting
+    - ballet
+    - sculpture
+    - graphic_design
+
+  games:
+    - chess
+    - board_games
+    - video_games
+    - poker
+    - puzzle_solving
+    - dungeons_and_dragons
+    - speedcubing
+    - darts
+    - bowling
+
+  wellness_mind:
+    - meditation
+    - journaling
+    - therapy_selfcare
+    - skincare
+    - aromatherapy
+    - cold_plunges
+    - breathwork
+    - tarot_reading
+
+  animals_pets:
+    - dog_training
+    - cat_care
+    - aquarium_keeping
+    - horseback_riding
+    - reptile_keeping
+    - bird_keeping
+    - fish_petting
+
+  home_garden:
+    - gardening
+    - houseplants
+    - interior_design
+    - furniture_restoration
+    - diy_renovation
+    - composting
+    - bonsai
+
+  travel_collecting:
+    - backpacking_travel
+    - road_trips
+    - stamp_collecting
+    - coin_collecting
+    - antiquing
+    - thrifting
+    - language_learning
+    - urban_exploration
+
+  science_learning:
+    - astronomy
+    - chemistry_experiments
+    - fossil_hunting
+    - genealogy
+    - mathematics
+    - history_buff
+    - philosophy
+    - investing

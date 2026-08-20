@@ -1,0 +1,125 @@
+# Task: interest→icon classifier training data.
+#
+# Given a user's interest phrase, pick the best matching icon from a fixed
+# vocabulary. Records look like:
+#
+#   {"id": "glassblowing_014", "concept_group": "glassblowing",
+#    "interest": "making colorful objects from molten glass",
+#    "positive_icon": "flame", "hard_negatives": ["wine-glass", "palette"],
+#    "acceptable_icons": ["flame"], "category": "crafts"}
+#
+# Run:
+#   seedmill generate -t config/tasks/icon_classifier.yaml
+#   seedmill export   -t config/tasks/icon_classifier.yaml
+
+name: icon_classifier
+description: >
+  Training data for a classifier that maps a free-text interest/hobby
+  phrase to the best matching icon from a fixed icon set.
+
+model:
+  backend: ollama
+  model: gemma4:27b
+  base_url: http://localhost:11434
+  think: false
+
+vocabularies:
+  icons:
+    file: ../icons.yaml
+    key: icons
+
+seeds:
+  file: ../concepts.yaml
+  key: concepts
+  group_field: category      # concept category → record.category
+  value_field: concept_group # seed value → record.concept_group
+  per_seed: 8
+  id_pattern: "{seed}_{counter:03d}"
+
+fields:
+  interest:
+    type: str
+    min_length: 3
+    max_length: 120
+    description: Short free-text phrase a user might type about their hobby.
+  positive_icon:
+    type: str
+    vocab: icons
+  hard_negatives:
+    type: list
+    items: {vocab: icons}
+    min_items: 2
+    max_items: 4
+  acceptable_icons:
+    type: list
+    items: {vocab: icons}
+    min_items: 1
+    max_items: 4
+
+rules:
+  - unique_items: {list: hard_negatives}
+  - unique_items: {list: acceptable_icons}
+  - not_in: {value: positive_icon, list: hard_negatives}
+  - contains: {list: acceptable_icons, value: positive_icon, autofix: true}
+  - disjoint: {a: acceptable_icons, b: hard_negatives, autofix_remove_from: a}
+
+prompts:
+  system: |
+    You generate training data for an icon-recommendation classifier. Given a
+    user's interest or hobby (a short free-text phrase), the classifier must
+    pick the best matching icon from a fixed icon set.
+
+    Rules:
+    - Use ONLY icon names from the provided vocabulary, exactly as written.
+    - "interest" is a short phrase a user might type about their hobby
+      (2-8 words). Vary the style: plain names ("fish petting"), descriptions
+      ("making colorful objects from molten glass"), casual ("obsessed with
+      sourdough starters"), terse ("weekend kayak trips").
+    - "positive_icon" is the single best visual metaphor for the interest.
+    - "hard_negatives" are 3 icons that are superficially tempting — they
+      share a word, theme, or adjacent meaning with the interest — but are
+      clearly worse choices than the positive. Make them genuinely tempting,
+      not random.
+    - "acceptable_icons" lists every icon that would be a reasonable choice
+      (1-3 icons, always including the positive). Never include a hard
+      negative here.
+    - Output valid JSON only. No commentary, no markdown fences.
+  user: |
+    Concept group: $seed
+    Category: $group
+
+    Icon vocabulary (the ONLY allowed icon names):
+    $vocab_icons
+
+    Generate exactly $n records for the concept "$seed_readable". Each record
+    covers the same underlying interest but with a DIFFERENT phrasing, angle,
+    or sub-aspect (gear, community, learning it, doing it competitively, etc.).
+    Different records may justify different positive icons.
+
+    Return a JSON object:
+    {"records": [{"interest": str, "positive_icon": str, "hard_negatives": [str, str, str], "acceptable_icons": [str, ...]}, ...]}
+  retry: |
+    Some or all of your records failed validation:
+    $errors
+
+    Regenerate exactly $n valid records. Every icon name must appear EXACTLY
+    as written in the vocabulary list. hard_negatives must not contain the
+    positive_icon. Output a JSON object with a "records" array only.
+
+generation:
+  batch_size: 4
+  max_retries: 2
+  temperature: 0.9
+  dedup:
+    fields: [interest]
+    embeddings: false
+    threshold: 0.9
+
+exports:
+  split_by: concept_group   # unseen-concept eval: a concept never straddles splits
+  splits: {train: 0.8, val: 0.1, test: 0.1}
+  seed: 42
+  formats: [sft, pairs]
+  sft_candidates: 5         # candidate list size, read by hooks
+
+hooks: icon_classifier_hooks.py

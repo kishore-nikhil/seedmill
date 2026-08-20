@@ -1,0 +1,175 @@
+# Seed axis for the PaceKeeper NLP task (config/tasks/pacekeeper_nlp_v3.yaml).
+#
+# v1/v2 ran in free-batch mode, which let the model drift into the same
+# handful of ideas — 918 v1 records collapsed onto "book", "dumbbell",
+# "pill" and "lotus" for 40% of all icons. Seeding one domain per batch
+# forces coverage: every domain below gets its own `per_seed` records, so
+# the dataset spans the whole app surface instead of the model's favorites.
+#
+# The group name lands in record.domain_group and is the split key for
+# exports — a domain never straddles train/val, so eval measures
+# generalization to phrasings about *unseen* domains.
+#
+# `none` is a real class here: v1 produced only 2 out-of-scope examples,
+# which is not enough for a classifier to ever learn to abstain.
+
+domains:
+  fitness:
+    - gym_workouts
+    - running
+    - cycling
+    - swimming
+    - yoga_practice
+    - home_workouts
+    - step_count
+    - stretching_mobility
+    - strength_training
+    - team_sport_practice
+    - hiking
+    - martial_arts
+
+  nutrition:
+    - water_intake
+    - protein_intake
+    - calorie_logging
+    - vegetable_servings
+    - meal_prep
+    - sugar_reduction
+    - intermittent_fasting
+    - home_cooked_meals
+    - coffee_limit
+    - alcohol_moderation
+
+  sleep_recovery:
+    - sleep_duration
+    - bedtime_consistency
+    - early_wake_up
+    - screen_free_evenings
+    - sleep_quality_logging
+    - rest_days
+
+  medication:
+    - once_daily_prescription
+    - twice_daily_prescription
+    - antibiotic_course
+    - insulin_injections
+    - vitamins_supplements
+    - inhaler_use
+    - birth_control
+    - allergy_medication
+    - as_needed_painkillers
+    - thyroid_medication
+    - eye_drops
+    - fertility_treatment
+
+  symptoms:
+    - headaches_migraines
+    - blood_pressure_readings
+    - blood_sugar_readings
+    - mood_logging
+    - anxiety_episodes
+    - chronic_pain_levels
+    - weight_tracking
+    - menstrual_cycle
+    - digestive_symptoms
+    - allergy_flare_ups
+    - seizure_logging
+    - physical_therapy_exercises
+
+  mental_wellness:
+    - meditation
+    - journaling
+    - gratitude_practice
+    - therapy_sessions
+    - breathing_exercises
+    - digital_detox
+    - time_outdoors
+
+  quitting:
+    - quit_smoking
+    - sobriety
+    - quit_vaping
+    - nail_biting
+    - junk_food_free
+    - social_media_free
+    - caffeine_free
+    - no_gambling
+    - no_doomscrolling
+
+  productivity:
+    - deep_work_blocks
+    - reading_books
+    - study_sessions
+    - language_learning
+    - coding_practice
+    - side_project_time
+    - inbox_zero
+    - phone_free_mornings
+    - pomodoro_sessions
+
+  finance:
+    - no_spend_days
+    - savings_contributions
+    - budget_review
+    - investing_deposits
+    - packed_lunch_savings
+
+  household:
+    - cleaning_routine
+    - laundry
+    - dishes
+    - plant_watering
+    - decluttering
+    - pet_care
+    - car_maintenance
+
+  social_personal:
+    - calling_family
+    - date_nights
+    - friend_meetups
+    - volunteering
+    - handwritten_letters
+
+  creative_practice:
+    - guitar_practice
+    - piano_practice
+    - drawing_sketching
+    - photography_outings
+    - daily_writing
+    - singing_practice
+
+  work_school:
+    - job_applications
+    - networking_outreach
+    - class_attendance
+    - assignment_deadlines
+    - certification_study
+
+  # Out-of-scope inputs the classifier must refuse to turn into an entity.
+  #
+  # This group carries the whole `none` class: the other groups are told
+  # never to emit it, so the share is decided here (14 of 111 seeds ≈ 12%)
+  # instead of being left to the generator, which produced 0.2% when asked
+  # for 10%.
+  #
+  # The `topical_*` seeds are the ones that matter. A query has to be
+  # refused because of what it ASKS, not what it is about — "how do i
+  # delete my old gym records" is dense with gym vocabulary and must still
+  # come back none. Without those, the router learns "mentions gym →
+  # tracker" and the none class collapses on exactly the inputs where
+  # refusing matters.
+  none:
+    - small_talk
+    - app_how_to_questions
+    - general_knowledge_questions
+    - vague_feelings_no_goal
+    - editing_existing_entity
+    - data_questions_about_past
+    - topical_fitness_questions
+    - topical_medication_questions
+    - topical_streak_questions
+    - logging_a_past_event
+    - notification_settings
+    - account_and_billing
+    - greetings_and_thanks
+    - unrelated_requests

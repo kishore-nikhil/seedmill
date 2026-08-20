@@ -1,0 +1,284 @@
+# Canonical icon vocabulary for PaceKeeper — the ONLY icons the app can
+# actually render and the user can actually pick.
+#
+# Source of truth: the three picker lists in the app,
+#   lib/widgets/create_tracker_sheet.dart  → trackerIconOptions (16)
+#   lib/widgets/create_streak_sheet.dart   → streakIconOptions  (12)
+#   lib/widgets/create_health_log_sheet.dart → healthIconOptions (12)
+# which share one grid widget (widgets/entity_identity_sheet.dart). That
+# sheet marks an option selected by comparing code points, so an entity
+# carrying a code point outside its entity's list shows NOTHING selected
+# when the user edits it — which is why generated data must stay inside
+# these sets rather than inventing icons.
+#
+# Code points are Material Icons, verified against Flutter 3.44.4 (the
+# version pinned in .github/workflows/quality.yml) by reading
+# packages/flutter/lib/src/material/icons.dart and cross-checked by
+# printing Icons.<name>.codePoint from a flutter test. Re-verify on any
+# Flutter upgrade: Material renumbered these code points, and the app's
+# own lib/screens/journal_screen.dart _iconNameToCodePoint map is still on
+# the OLD numbering, where every entry now resolves to an unrelated glyph
+# (0xe39c "dumbbell" is local_offer, a price tag; 0xf0735 "pill" is a
+# battery meter).
+#
+# NOTE — this is deliberately NOT config/icons.yaml. That file is a ~280
+# name Font Awesome / Lucide vocabulary for the icon_classifier task
+# (hiking-boot, boxing-glove, tennis-racket). None of those exist in
+# Material Icons or in this app; data generated against them renders as a
+# fallback star.
+#
+# Used by:
+#   - config/tasks/pacekeeper_nlp_v3.yaml  (vocabularies: icons)
+#     → grammar-constrains decoding so the generator cannot emit an
+#       unsupported icon
+#   - the app's guided-generation schema (anyOf over these slugs)
+#   - the slug → code point lookup the app applies to a model's answer
+
+# The vocabulary proper. Nested groups flatten to one set for validation,
+# so a record may carry any slug below; the groups exist so a prompt can
+# offer the model only the icons that entity's picker actually shows.
+icons:
+  tracker:
+    - office
+    - gym
+    - reading
+    - meditation
+    - running
+    - social
+    - study
+    - coding
+    - diet
+    - water
+    - music
+    - art
+    - volunteer
+    - errands
+    - sleep
+    - custom
+
+  streak:
+    - streak
+    - gym
+    - meditation
+    - quit-smoking
+    - launch
+    - coding
+    - book
+    - water
+    - sleep
+    - diet
+    - running
+    - music
+
+  health:
+    - medication
+    - symptom
+    - vitals
+    - water
+    - sleep
+    - diet
+    - bathroom
+    - mood
+    - injection
+    - temperature
+    - gym
+    - wellness
+
+# slug → (Material Icons name, code point). One entry per distinct icon;
+# 28 icons across the three pickers. Quoted so the hex survives YAML
+# parsing as text — parse with int(value, 16).
+codepoints:
+  # tracker
+  office:        {material: business,               code: "0xe11b"}
+  gym:           {material: fitness_center,         code: "0xe28d"}
+  reading:       {material: menu_book,              code: "0xe3dd"}
+  meditation:    {material: self_improvement,       code: "0xe56f"}
+  running:       {material: directions_run,         code: "0xe1dc"}
+  social:        {material: people,                 code: "0xe486"}
+  study:         {material: school,                 code: "0xe559"}
+  coding:        {material: code,                   code: "0xe176"}
+  diet:          {material: restaurant,             code: "0xe532"}
+  water:         {material: water_drop,             code: "0xf05a2"}
+  music:         {material: music_note,             code: "0xe415"}
+  art:           {material: brush,                  code: "0xe113"}
+  volunteer:     {material: volunteer_activism,     code: "0xe6c6"}
+  errands:       {material: shopping_cart,          code: "0xe59c"}
+  sleep:         {material: bedtime,                code: "0xe0db"}
+  custom:        {material: star,                   code: "0xe5f9"}
+  # streak-only
+  streak:        {material: local_fire_department,  code: "0xe392"}
+  quit-smoking:  {material: smoke_free,             code: "0xe5c7"}
+  launch:        {material: rocket_launch,          code: "0xf055d"}
+  book:          {material: book,                   code: "0xe0ef"}
+  # health-only
+  medication:    {material: medication,             code: "0xe3d9"}
+  symptom:       {material: healing,                code: "0xe304"}
+  vitals:        {material: monitor_heart,          code: "0xf053d"}
+  bathroom:      {material: wc,                     code: "0xe6dc"}
+  mood:          {material: psychology,             code: "0xe4ef"}
+  injection:     {material: vaccines,               code: "0xf0597"}
+  temperature:   {material: thermostat,             code: "0xe656"}
+  wellness:      {material: spa,                    code: "0xe5d8"}
+
+# What to use when the model gives nothing usable. Mirrors the app's own
+# _defaultsFor() in create_health_log_sheet.dart and the initial values in
+# the create sheets.
+defaults:
+  tracker: custom
+  streak: streak
+  health: medication
+
+# Free-text names the model (or older data) may produce, resolved to a
+# canonical slug. The app should keep applying these as a tolerance layer
+# even once decoding is constrained — old rows in the database and any
+# unconstrained path still emit them. Lowercased and trimmed before lookup.
+aliases:
+  # gym
+  dumbbell: gym
+  fitness: gym
+  workout: gym
+  exercise: gym
+  muscle: gym
+  therapy: gym            # the health picker labels this icon "Therapy"
+  # running
+  run: running
+  runner: running
+  jog: running
+  steps: running
+  walking: running
+  running-shoe: running
+  # medication
+  pill: medication
+  pills: medication
+  medicine: medication
+  capsule: medication
+  capsules: medication
+  dose: medication
+  prescription: medication
+  prescription-bottle: medication
+  supplement: medication
+  # injection
+  syringe: injection
+  shot: injection
+  vaccine: injection
+  insulin: injection
+  # vitals
+  heart: vitals
+  heart-pulse: vitals
+  heartbeat: vitals
+  blood-pressure: vitals
+  blood-drop: vitals
+  bloodtype: vitals
+  pulse: vitals
+  stethoscope: vitals
+  # symptom
+  bandage: symptom
+  pain: symptom
+  injury: symptom
+  recovery: symptom
+  kit-medical: symptom
+  # mood
+  brain: mood
+  mental-health: mood
+  anxiety: mood
+  stress: mood
+  head: mood
+  headache: mood
+  # temperature
+  thermometer: temperature
+  fever: temperature
+  # meditation
+  lotus: meditation
+  zen: meditation
+  mindfulness: meditation
+  yoga: meditation
+  yoga-mat: meditation
+  # streak
+  fire: streak
+  flame: streak
+  chain: streak
+  # quit-smoking
+  smoke-free: quit-smoking
+  no-smoking: quit-smoking
+  ban-smoking: quit-smoking
+  quit: quit-smoking
+  sobriety: quit-smoking
+  # water
+  water-drop: water
+  fluids: water
+  hydration: water
+  glass-water: water
+  drink: water
+  # diet
+  meals: diet
+  food: diet
+  eating: diet
+  nutrition: diet
+  utensils: diet
+  # sleep
+  bed: sleep
+  moon: sleep
+  night: sleep
+  rest: sleep
+  bedtime: sleep
+  # reading / book
+  books: reading
+  read: reading
+  book-open: reading
+  journal: book
+  notes: book
+  # coding
+  code: coding
+  programming: coding
+  laptop: coding
+  computer: coding
+  dev: coding
+  # study
+  learning: study
+  education: study
+  class: study
+  graduation-cap: study
+  # office
+  business: office
+  work: office
+  building: office
+  briefcase: office
+  # social
+  people: social
+  friends: social
+  family: social
+  people-group: social
+  # art
+  brush: art
+  painting: art
+  drawing: art
+  creative: art
+  palette: art
+  # music
+  music-note: music
+  guitar: music
+  instrument: music
+  practice: music
+  # errands
+  shopping: errands
+  chores: errands
+  shopping-cart: errands
+  # volunteer
+  charity: volunteer
+  giving: volunteer
+  hand-holding-heart: volunteer
+  # launch
+  rocket: launch
+  project: launch
+  goal: launch
+  # wellness
+  self-care: wellness
+  relax: wellness
+  spa: wellness
+  # bathroom
+  toilet: bathroom
+  restroom: bathroom
+  # custom
+  star: custom
+  general: custom
+  other: custom

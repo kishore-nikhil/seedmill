@@ -1,0 +1,271 @@
+# Icon vocabulary for the interest→icon classifier.
+#
+# Every positive_icon, hard_negative, and acceptable_icon in generated
+# records MUST come from this list. Names are kebab-case, Font Awesome /
+# Lucide style. Categories here are only for organization and prompt
+# grouping — validation uses the flattened set.
+
+icons:
+  general:
+    - heart
+    - star
+    - flame
+    - bolt
+    - gem
+    - crown
+    - gift
+    - key
+    - lock
+    - bell
+    - flag
+    - clock
+    - calendar
+    - bookmark
+    - magnet
+    - umbrella
+    - anchor
+    - balloon
+    - kite
+    - trophy
+    - medal
+    - target
+    - shield
+    - sword
+    - bow-arrow
+    - crystal-ball
+    - magic-wand
+    - mask
+    - ghost
+    - skull
+    - confetti
+    - fireworks
+
+  nature:
+    - tree
+    - leaf
+    - flower
+    - seedling
+    - mushroom
+    - mountain
+    - volcano
+    - sun
+    - moon
+    - cloud
+    - rain
+    - snowflake
+    - waves
+    - water-drop
+    - wind
+    - rainbow
+    - feather
+    - bug
+    - butterfly
+    - bee
+    - spider
+    - shell
+    - rock
+
+  animals:
+    - dog
+    - cat
+    - fish
+    - bird
+    - horse
+    - rabbit
+    - turtle
+    - frog
+    - snake
+    - whale
+    - dolphin
+    - paw
+    - bone
+    - bird-nest
+
+  food_drink:
+    - pizza
+    - burger
+    - coffee-cup
+    - teapot
+    - cake
+    - cookie
+    - bread
+    - cheese
+    - egg
+    - apple
+    - carrot
+    - pepper-hot
+    - ice-cream
+    - wine-glass
+    - beer-mug
+    - cocktail
+    - utensils
+    - whisk
+    - blender
+    - cooking-pot
+    - grill
+
+  sports_fitness:
+    - dumbbell
+    - bicycle
+    - football
+    - basketball
+    - baseball
+    - tennis-racket
+    - golf-flag
+    - hockey-stick
+    - ski
+    - skateboard
+    - surfboard
+    - swimmer
+    - yoga-mat
+    - boxing-glove
+    - dartboard
+    - bowling-ball
+    - stopwatch
+    - whistle
+    - climbing-rope
+    - running-shoe
+
+  music:
+    - music-note
+    - guitar
+    - piano
+    - drum
+    - microphone
+    - headphones
+    - violin
+    - trumpet
+    - saxophone
+    - radio
+    - vinyl-record
+    - speaker
+    - metronome
+
+  tech:
+    - laptop
+    - keyboard
+    - computer-mouse
+    - code
+    - robot
+    - microchip
+    - database
+    - server
+    - gamepad
+    - vr-headset
+    - drone
+    - printer
+    - mobile-phone
+    - wifi
+    - battery
+    - plug
+    - satellite
+    - rocket
+    - terminal
+    - camera
+    - film
+    - clapperboard
+
+  arts_crafts:
+    - palette
+    - paintbrush
+    - spray-can
+    - pencil
+    - pen
+    - quill
+    - easel
+    - statue
+    - scissors
+    - sewing-needle
+    - thread
+    - yarn-ball
+    - vase
+    - paper-plane
+    - stamp
+    - theater-masks
+    - ballet-shoes
+    - camera-retro
+    - book
+    - book-open
+    - newspaper
+
+  home_garden:
+    - house
+    - sofa
+    - bed
+    - lamp
+    - candle
+    - plant-pot
+    - watering-can
+    - shovel
+    - rake
+    - axe
+    - broom
+    - hammer
+    - wrench
+    - screwdriver
+    - toolbox
+    - ladder
+    - fence
+    - picture-frame
+    - bathtub
+
+  travel_outdoors:
+    - tent
+    - campfire
+    - backpack
+    - binoculars
+    - map
+    - map-pin
+    - compass
+    - globe
+    - airplane
+    - train
+    - car
+    - motorcycle
+    - sailboat
+    - kayak
+    - fishing-rod
+    - lantern
+    - hiking-boot
+    - suitcase
+    - passport
+    - telescope
+
+  science_mind:
+    - microscope
+    - atom
+    - dna
+    - flask
+    - brain
+    - calculator
+    - ruler
+    - chart-line
+    - chart-pie
+    - puzzle-piece
+    - chess-knight
+    - dice
+    - playing-cards
+    - graduation-cap
+    - lightbulb
+    - gears
+    - scale-balance
+    - hourglass
+
+  people_work:
+    - hand
+    - handshake
+    - people-group
+    - chat-bubble
+    - envelope
+    - coin
+    - piggy-bank
+    - briefcase
+    - building
+    - factory
+    - store
+    - stethoscope
+    - pill
+    - tooth
+    - eye
+    - lotus
+    - heart-pulse

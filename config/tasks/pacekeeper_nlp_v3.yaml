@@ -1,0 +1,491 @@
+# Task: natural language → PaceKeeper app config. BERT-ready.
+#
+# Every design decision below was forced by a defect class found in an
+# earlier, free-batch version of this dataset — none of them are
+# speculative. Two that shaped the whole task:
+#
+#   1. recommended_icon was free text. 918 records produced 134 distinct
+#      icon strings — "coffee cup", "head", "capsule", "yoga_pose" — which
+#      is a label space no classifier can be trained on, and none of which
+#      the app can render. Here the field is `vocab: icons` against
+#      config/pacekeeper_icons.yaml — the app's own picker lists, 28 slugs
+#      with verified Material code points — so it is grammar-constrained at
+#      decode time to icons that actually exist in the app.
+#
+#   2. Free-batch generation collapsed onto the model's favorite ideas
+#      (book / dumbbell / pill / lotus = 40% of icons) and produced only
+#      2 out-of-scope records in 918. This task is seeded over
+#      config/habit_domains.yaml, so every domain — including a real
+#      `none` group — gets its own quota.
+#
+# A third: the labeling conventions in the field descriptions below pick
+# one canonical side of each ambiguous boundary (at-least vs exact,
+# past-start streaks, per-day dose counts), because an earlier dataset
+# contained both sides of several contradictions.
+#
+# Backend is the local llama.cpp server (Qwen3.8-27B), not Ollama.
+#
+# Run:
+#   seedmill generate -t config/tasks/pacekeeper_nlp_v3.yaml --workers 3
+#   seedmill stats    -t config/tasks/pacekeeper_nlp_v3.yaml
+#   seedmill export   -t config/tasks/pacekeeper_nlp_v3.yaml
+
+name: pacekeeper_nlp_v3
+description: >
+  Training pairs for an on-device model that turns a natural language
+  request into a PaceKeeper entity (tracker, streak, health log, or none),
+  including the icon and color to show for it.
+
+model:
+  backend: openai_compat
+  model: ggml-org/Qwen3.8-27B-GGUF:Q4_K_M
+  base_url: http://127.0.0.1:8080/v1
+  think: false          # sends chat_template_kwargs.enable_thinking=false
+
+vocabularies:
+  # The app's own picker lists — 28 icons across tracker/streak/health, each
+  # with a verified Material code point. NOT config/icons.yaml, which is the
+  # ~280-name Font Awesome vocabulary for the icon_classifier task; those
+  # names do not exist in this app and render as a fallback star.
+  #
+  # The vocab flattens to all 28 for grammar-constrained decoding, because
+  # a decode-time grammar cannot condition on the entity_type the model is
+  # about to choose. The per-entity list is enforced afterwards in hooks,
+  # where entity_type is known.
+  icons:
+    file: ../pacekeeper_icons.yaml
+    key: icons
+
+seeds:
+  file: ../habit_domains.yaml
+  key: domains
+  group_field: domain_group   # → record.domain_group (export split key)
+  value_field: domain         # → record.domain
+  per_seed: 12
+  id_pattern: "{seed}_{counter:03d}"
+
+fields:
+  query:
+    type: str
+    min_length: 8
+    max_length: 240
+    description: >
+      Natural language user input. Vary style: casual, terse, verbose,
+      with typos, slang, and different phrasings.
+  entity_type:
+    type: str
+    enum: [tracker, streak, health, none]
+  name:
+    type: str
+    max_length: 40
+    description: Short clear title derived from the query.
+  recommended_color:
+    type: str
+    enum: [blue, green, orange, red, purple, teal, pink, yellow]
+  recommended_icon:
+    type: str
+    vocab: icons
+    nullable: true
+    description: >
+      Icon slug from the picker list for this entity_type. Null when
+      entity_type is none — an out-of-scope query creates no entity, so
+      there is no icon to show.
+  tracker_config:
+    type: object
+    nullable: true
+    description: Only populated when entity_type=tracker, null otherwise.
+    fields:
+      period: {type: str, enum: [daily, weekly, monthly, quarterly, annual, custom]}
+      goal_type: {type: str, enum: [exactCount, minimumAverage, percentage]}
+      target_value: {type: float}
+      unit: {type: str}
+      average_period: {type: str, enum: [daily, weekly, monthly, quarterly, annual]}
+      schedule_preference: {type: str, enum: [balanced, rushEarly, skipFridays, maximizeGap, custom]}
+      notification_mode: {type: str, enum: [none, atLocation, dailyAtTime]}
+  # No calendar dates anywhere in here. The generator has no reliable sense
+  # of "today", so every ISO date it emits is a fabrication: v3's first run
+  # produced a "45 day challenge" spanning 69 days, start dates in 2024 and
+  # 2025, and three different date formats. The app already knows the real
+  # date at creation time — it only needs the user's words and a length.
+  streak_config:
+    type: object
+    nullable: true
+    description: Only populated when entity_type=streak, null otherwise.
+    fields:
+      streak_type: {type: str, enum: [buildUp, countUp, countDown]}
+      start_date:
+        type: str
+        description: >
+          The user's own words for when it starts or started, copied
+          verbatim from the query — "now", "today", "tomorrow",
+          "next monday", "march 1st", "last month". Never a calendar date.
+      duration_value: {type: float, nullable: true}
+      duration_unit: {type: str, enum: [days, weeks, months], nullable: true}
+  health_config:
+    type: object
+    nullable: true
+    description: Only populated when entity_type=health, null otherwise.
+    fields:
+      health_category: {type: str, enum: [medication, symptom, behavior]}
+      daily_target: {type: float}
+      schedule_slots: {type: list}
+
+rules:
+  - exclusive_switch:
+      switch: entity_type
+      cases:
+        tracker: tracker_config
+        streak: streak_config
+        health: health_config
+
+prompts:
+  system: |
+    You are a synthetic training data generator for an on-device NLP model.
+    Produce diverse (query, structured_output) pairs: realistic natural
+    language user requests and their correct JSON configs.
+
+    Style rules:
+    - Queries are natural language — vary between casual, terse, verbose,
+      with occasional typos or slang. Write how people actually type into a
+      phone, including lowercase and missing punctuation.
+    - Only populate the config block matching entity_type; the others null.
+    - Vary complexity: simple one-liners, multi-constraint requests,
+      ambiguous phrasing, unusual units, boundary values.
+    - Output valid JSON only. No commentary, no markdown fences.
+
+    ENTITY TYPE — decided by how the goal is phrased, not by the topic. The
+    same topic can be any of the three:
+    - a countable goal over a period ("4 gym sessions a week")   -> tracker
+    - an unbroken chain of days / "days since" / a challenge
+      ("no sugar streak", "100 days of code")                    -> streak
+    - taking something, or logging a body signal
+      ("my metformin", "log my blood pressure")                  -> health
+    The tracker/health boundary is the one people get wrong, so it is
+    fixed by rule, not by feel:
+    - health ONLY for: something you take (medication, supplement, inhaler,
+      injection), a body signal you measure or log (blood pressure, mood,
+      pain, cycle, symptoms), or a clinician-prescribed routine (physical
+      therapy exercises, CPAP)
+    - everything else you simply do or consume by choice — sleep hours,
+      steps, water, workouts, screen time — is a tracker, even though it is
+      health-adjacent. "8 hours of sleep a night" is a tracker with unit
+      "hours", NOT a health behavior log
+    - health_category "behavior" is therefore rare: use it only for a
+      prescribed routine, never for a personal habit that happens to be
+      healthy
+
+    - anything that is not a request to create one of the three  -> none,
+      with all three config blocks null (chit-chat, questions about the
+      app, questions about data the user already logged, edits to an
+      existing entity, vague feelings with no goal in them)
+
+    LABELING CONVENTIONS — these are law. Every record must follow them,
+    even when the query is ambiguous. Never contradict them.
+
+    goal_type:
+    - "at least N", "N minimum", "N or more", "maintain an average",
+      and ranges like "3-4 times"  -> minimumAverage
+      (target_value = the number, or the midpoint of a range: "3-4" -> 3.5)
+    - a plain exact target ("hit 20 days this quarter", "50 pushups daily",
+      "read 12 books this year")   -> exactCount
+    - percent-of-days goals        -> percentage, target_value on the 0-100
+      scale ("85%" -> 85.0, never 0.85), unit "percent" (never "%")
+
+    streak_type:
+    - "days since X", quitting/sobriety, or ANY start in the past
+      ("from jan 1st", "started last month")        -> countUp
+    - a fixed-length challenge
+      ("30 day challenge", "6 week program")        -> countDown
+    - starting a new consecutive-day chain going forward, no past start,
+      no fixed length ("start a meditation streak") -> buildUp
+
+    streak dates — NEVER write a calendar date. Not "2026-03-01", not
+    "March 1, 2026", not "3/1/26". The app resolves real dates itself.
+    - start_date is the user's own words, copied verbatim out of the query:
+      "now", "today", "tomorrow", "next monday", "march 12th", "last
+      month", "since my birthday". When the user names no start, use "now".
+    - the horizon is duration_value + duration_unit, taken from what the
+      user actually said: "30 day challenge" -> 30 + days, "3 months sober"
+      -> 3 + months, "6 week program" -> 6 + weeks. Do not convert between
+      units — "6 weeks" is 6 weeks, never 42 days.
+    - countDown MUST have both duration_value and duration_unit. buildUp
+      and countUp MUST have both null — an open-ended chain has no horizon.
+    - a countDown query must state its length. Do not write queries that
+      end at a bare calendar date ("until june 1st"); the app cannot
+      express that, so it must not appear in training data.
+
+    durations are never streaks. The streak engine counts whole days, so a
+    goal measured in minutes or hours is a tracker (unit "minutes" /
+    "hours"), or a health behavior log when it is a prescribed routine:
+    - "meditate 10 minutes a day"      -> tracker, target 10, unit minutes
+    - "meditate every day"             -> streak (buildUp)
+    - "1 hour of guitar daily"         -> tracker, target 1, unit hours
+    Generate both phrasings across the dataset so the boundary is learnable.
+
+    units — NEVER convert. Copy the user's number and the user's unit
+    exactly as typed:
+    - "run 5km"        -> target_value 5.0,  unit "km"    (never 3.1 miles)
+    - "drink 64 oz"    -> target_value 64.0, unit "oz"    (never 1.9 L)
+    - "walk 10k steps" -> target_value 10000.0, unit "steps"
+    The app converts at display time. A converted number in the label is
+    silent arithmetic the model will learn to do badly.
+
+    health daily_target:
+    - the literal number of times per day. Count named times of day:
+      "morning and evening" -> 2, "8am and 8pm" -> 2, "with every meal" -> 3
+    - ranges use the midpoint: "2-3 puffs a day" -> 2.5
+    - NEVER a per-day fraction of a weekly count. As-needed or weekly
+      symptom logging ("log headaches when they happen") -> 1.0
+    - schedule_slots has exactly one slot per named time of day, labels
+      from: Morning, Afternoon, Evening, Night, Bedtime. For medications
+      with named times, len(schedule_slots) == daily_target. When no time
+      is named, schedule_slots is [].
+
+    names:
+    - medications: the drug name, capitalized ("Amlodipine", not "BP meds")
+    - otherwise: concise Title Case ("Gym Workouts", "Reading Streak")
+    - for entity_type none: a short label for the intent ("Chit Chat",
+      "App Question")
+
+    recommended_icon — the app shows a different icon picker per entity
+    type, and an icon outside that entity's picker shows up as nothing
+    selected when the user edits the entity. So:
+    - choose ONLY from the list for the entity_type you picked. The
+      tracker list, the streak list and the health list overlap but are
+      not the same: "reading" exists only for trackers, "book" only for
+      streaks, "medication" only for health.
+    - entity_type none -> recommended_icon null. No entity, no icon.
+    - this is a classifier label, so the same kind of request must always
+      get the same slug: gym/weights/PT -> gym, running/walking/steps ->
+      running, hydration -> water, sleep/bedtime -> sleep, food/calories/
+      sugar -> diet, tablets/doses -> medication, injections -> injection,
+      BP or glucose or heart rate -> vitals, aches and flare-ups ->
+      symptom, mood/anxiety -> mood, fever -> temperature, smoking or
+      vaping -> quit-smoking, meditation/yoga -> meditation, books ->
+      reading (tracker) or book (streak), programming -> coding,
+      classes/revision -> study, instruments -> music, drawing/painting ->
+      art, work -> office, friends/family -> social, chores/shopping ->
+      errands, charity -> volunteer, self-care -> wellness
+    - when nothing fits, use the entity's default: custom for trackers,
+      streak for streaks, medication for health. Never invent a slug.
+  # NOTE ON PROMPT ORDER: every static block (icon vocabulary, schema,
+  # examples, rules) comes first and the per-seed line comes LAST. The
+  # blocks above are byte-identical across all 111 seeds, so llama.cpp's
+  # slot prefix cache reuses their KV instead of re-prefilling ~3.5k tokens
+  # on every call. Putting "Domain: X" at the top — the obvious ordering —
+  # invalidates the cache for everything after it and roughly doubles
+  # wall-clock for the run.
+  user: |
+    Icon vocabulary (the ONLY allowed values for recommended_icon):
+    $vocab_icons
+
+    Target JSON schema:
+    $schema_json
+
+    Every record is a DIFFERENT user with a different phrasing, constraint,
+    or sub-aspect of the domain — different numbers, periods, times of day,
+    tone, and length. Do not restate the same sentence with synonyms.
+
+    Entity type by domain group:
+    - group "medication" or "symptoms" -> entity_type health
+    - group "none" -> entity_type none, all three config blocks null; the
+      query must be something a user might type that is NOT a request to
+      create a tracker, streak, or health log
+    - every other group -> mix tracker and streak roughly 60/40, chosen by
+      the phrasing rules above, and include an occasional health record
+      when the phrasing is about the body (e.g. "log my mood"). Never emit
+      entity_type none here — the none group owns that class, so that its
+      share of the dataset is set by the seed list rather than by the
+      model's mood (v1 asked for 10% none and produced 0.2%).
+
+    $examples
+    Return a JSON object with key "records" containing an array of $n objects.
+    Each object has "query" plus all schema fields as the structured output.
+    Each record must be unique in both phrasing and underlying intent.
+
+    Generate exactly $n training pairs now for this domain:
+      domain: $seed_readable
+      group:  $group
+  retry: |
+    Your previous records failed validation:
+    $errors
+
+    Regenerate exactly $n valid records. Only populate the config block
+    matching entity_type; set the others to null. Follow the LABELING
+    CONVENTIONS exactly: "at least N" is minimumAverage; past start dates
+    are countUp; countDown MUST have both duration_value and duration_unit,
+    while buildUp and countUp MUST have both null; start_date is the user's
+    own words verbatim and NEVER a calendar date; daily_target is a literal
+    per-day count (never a fraction); percentages use the 0-100 scale with
+    unit "percent"; recommended_icon must be one of the vocabulary names
+    exactly.
+    JSON only.
+
+# Examples double as the canonical answers to v1's contradictions: every
+# boundary that produced conflicting labels appears here with its one
+# correct labeling, now with vocabulary icons.
+examples:
+  - query: "set up a weekly tracker for my gym sessions, aim for at least 4 days a week"
+    output:
+      entity_type: tracker
+      name: "Gym Sessions"
+      recommended_color: green
+      recommended_icon: "gym"
+      tracker_config:
+        period: weekly
+        goal_type: minimumAverage
+        target_value: 4.0
+        unit: days
+        average_period: weekly
+        schedule_preference: balanced
+        notification_mode: none
+      streak_config: null
+      health_config: null
+  - query: "I want to hit 85% of my coding tasks completed every month"
+    output:
+      entity_type: tracker
+      name: "Coding Tasks"
+      recommended_color: blue
+      recommended_icon: "coding"
+      tracker_config:
+        period: monthly
+        goal_type: percentage
+        target_value: 85.0
+        unit: percent
+        average_period: monthly
+        schedule_preference: balanced
+        notification_mode: none
+      streak_config: null
+      health_config: null
+  - query: "gym streak starting january first, keep counting how long ive kept it up"
+    output:
+      entity_type: streak
+      name: "Gym Streak"
+      recommended_color: orange
+      recommended_icon: "streak"
+      tracker_config: null
+      streak_config:
+        streak_type: countUp
+        start_date: "january first"
+        duration_value: null
+        duration_unit: null
+      health_config: null
+  - query: "30 days no sugar challenge starting tomorrow"
+    output:
+      entity_type: streak
+      name: "No Sugar Challenge"
+      recommended_color: purple
+      recommended_icon: "diet"
+      tracker_config: null
+      streak_config:
+        streak_type: countDown
+        start_date: "tomorrow"
+        duration_value: 30.0
+        duration_unit: days
+      health_config: null
+  - query: "start a meditation streak, wanna meditate every day from now on"
+    output:
+      entity_type: streak
+      name: "Meditation Streak"
+      recommended_color: teal
+      recommended_icon: "meditation"
+      tracker_config: null
+      streak_config:
+        streak_type: buildUp
+        start_date: "now"
+        duration_value: null
+        duration_unit: null
+      health_config: null
+  # the same topic one word apart: a duration makes it a tracker, because
+  # the app's streak engine only counts whole days
+  - query: "meditate 10 minutes every morning"
+    output:
+      entity_type: tracker
+      name: "Meditation"
+      recommended_color: teal
+      recommended_icon: "meditation"
+      tracker_config:
+        period: daily
+        goal_type: exactCount
+        target_value: 10.0
+        unit: minutes
+        average_period: daily
+        schedule_preference: balanced
+        notification_mode: dailyAtTime
+      streak_config: null
+      health_config: null
+  # units survive verbatim: 5 km stays 5 km
+  - query: "wanna run 5km a day, every day this month"
+    output:
+      entity_type: tracker
+      name: "Daily Run"
+      recommended_color: orange
+      recommended_icon: "running"
+      tracker_config:
+        period: daily
+        goal_type: exactCount
+        target_value: 5.0
+        unit: km
+        average_period: daily
+        schedule_preference: balanced
+        notification_mode: none
+      streak_config: null
+      health_config: null
+  - query: "need to take my blood pressure meds at 8am and 8pm, 10mg amlodipine"
+    output:
+      entity_type: health
+      name: "Amlodipine"
+      recommended_color: red
+      recommended_icon: "medication"
+      tracker_config: null
+      streak_config: null
+      health_config:
+        health_category: medication
+        daily_target: 2.0
+        schedule_slots:
+          - {hour: 8, minute: 0, label: "Morning"}
+          - {hour: 20, minute: 0, label: "Evening"}
+  - query: "log my headaches whenever they happen, maybe a few times a week"
+    output:
+      entity_type: health
+      name: "Headaches"
+      recommended_color: yellow
+      recommended_icon: "symptom"
+      tracker_config: null
+      streak_config: null
+      health_config:
+        health_category: symptom
+        daily_target: 1.0
+        schedule_slots: []
+  - query: "whats the difference between a streak and a tracker anyway"
+    output:
+      entity_type: none
+      name: "App Question"
+      recommended_color: blue
+      recommended_icon: null
+      tracker_config: null
+      streak_config: null
+      health_config: null
+
+generation:
+  batch_size: 4
+  max_retries: 2
+  temperature: 0.95
+  workers: 3            # concurrent seeds; the server has 4 slots
+  dedup:
+    fields: [query]
+    embeddings: false
+    threshold: 0.9
+
+exports:
+  # Split on `domain`, not `domain_group`: there are only 14 groups, so a
+  # group-level split would hand an entire group (all of `medication`, say)
+  # to val and leave train without that label. 111 domains split cleanly
+  # while still guaranteeing eval phrasings come from domains train never
+  # saw.
+  split_by: domain
+  splits: {train: 0.8, val: 0.1, test: 0.1}
+  seed: 42
+  formats: [raw, bert]
+
+hooks: pacekeeper_nlp_v3_hooks.py

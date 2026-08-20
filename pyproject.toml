@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=77.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seedmill"
+version = "0.1.0"
+description = "Config-driven synthetic data generation for LLM training sets, against local models"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Nikhil Kishore", email = "nikhilkishore18@gmail.com" }]
+keywords = [
+    "synthetic-data",
+    "training-data",
+    "llm",
+    "fine-tuning",
+    "dataset-generation",
+    "constrained-decoding",
+    "ollama",
+    "llama.cpp",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Code Generators",
+]
+dependencies = [
+    "httpx>=0.25.0",
+    "numpy>=1.24",
+    "openai>=1.12.0",
+    "pydantic>=2.5.0",
+    "pyyaml>=6.0",
+    "rich>=13.0.0",
+    "typer>=0.12.0",
+]
+
+[project.optional-dependencies]
+# Near-duplicate filtering by embedding cosine similarity. Off by default
+# (`dedup.embeddings: false` in every shipped task) because it pulls torch.
+embeddings = ["sentence-transformers>=2.2.0"]
+dev = ["pytest>=8.0", "ruff>=0.6.0"]
+
+[project.urls]
+Homepage = "https://github.com/kishore-nikhil/seedmill"
+Repository = "https://github.com/kishore-nikhil/seedmill"
+Issues = "https://github.com/kishore-nikhil/seedmill/issues"
+
+[project.scripts]
+seedmill = "seedmill.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["seedmill*"]
+namespaces = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["output"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.ruff.lint.isort]
+# keep `from dataclasses import dataclass, field as dc_field` on one line
+combine-as-imports = true
+
+[tool.ruff.lint.per-file-ignores]
+# The query -> icon regex table and the number-word map are deliberately
+# one pattern per line; wrapping them makes the table unreadable.
+"config/tasks/*_hooks.py" = ["E501"]
