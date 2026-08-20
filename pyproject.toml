@@ -60,6 +60,11 @@ seedmill = "seedmill.cli:app"
 include = ["seedmill*"]
 namespaces = false
 
+# `seedmill init` reads this out of the installed package — a pip install
+# ships no config/, so without it the scaffold has nothing to copy.
+[tool.setuptools.package-data]
+"seedmill.templates" = ["*.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

@@ -6,6 +6,7 @@ Run from the repo root — paths inside a task YAML resolve against the
 working directory first, then against the task YAML's own directory.
 
 Usage:
+    seedmill init                     # scaffold an example task to edit
     seedmill generate -t config/tasks/icon_classifier.yaml
     seedmill generate -t config/tasks/icon_classifier.yaml --limit 2 --per-seed 3
     seedmill export   -t config/tasks/icon_classifier.yaml
@@ -20,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 from collections import Counter
+from importlib import resources
 from pathlib import Path
 
 import typer
@@ -210,11 +212,23 @@ def tasks(
     tasks_dir: str = typer.Option("config/tasks", "--dir"),
 ) -> None:
     """List available task configs."""
+    paths = sorted(Path(tasks_dir).glob("*.yaml"))
+    if not paths:
+        # Task YAMLs are not shipped in the wheel — they are the user's own
+        # work, and a pip install starts with none. An empty table looks
+        # like a bug, so say what to do instead.
+        console.print(
+            f"[yellow]No task configs in {tasks_dir}/[/yellow]\n"
+            "Run [cyan]seedmill init[/cyan] to scaffold a runnable example, "
+            "or point [cyan]--dir[/cyan] at your own tasks."
+        )
+        raise typer.Exit(0)
+
     table = Table(title="Tasks")
     table.add_column("Task", style="cyan")
     table.add_column("Mode")
     table.add_column("Description")
-    for path in sorted(Path(tasks_dir).glob("*.yaml")):
+    for path in paths:
         task = load_task(path)
         table.add_row(
             str(path),
@@ -222,6 +236,37 @@ def tasks(
             task.description.strip()[:70],
         )
     console.print(table)
+
+
+@app.command()
+def init(
+    name: str = typer.Argument("example", help="Name for the scaffolded task"),
+    tasks_dir: str = typer.Option("config/tasks", "--dir"),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing file"),
+) -> None:
+    """Scaffold a runnable example task YAML to edit into your own."""
+    dest = Path(tasks_dir) / f"{name}.yaml"
+    if dest.exists() and not force:
+        raise typer.BadParameter(f"{dest} already exists; pass --force to overwrite")
+
+    template = (
+        resources.files("seedmill.templates").joinpath("example_task.yaml").read_text()
+    )
+    # The template's own `name:` and its example command lines both carry
+    # the placeholder name; rewrite them so the file is runnable as written.
+    body = template.replace("config/tasks/example.yaml", str(dest)).replace(
+        "\nname: example\n", f"\nname: {name}\n"
+    )
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(body)
+
+    console.print(
+        f"[green]Wrote {dest}[/green]\n"
+        "It is self-contained — vocabulary and seeds are inline — so it runs "
+        "as soon as a local model is up:\n"
+        f"  [cyan]seedmill generate -t {dest} --limit 2 --per-seed 2[/cyan]"
+    )
 
 
 if __name__ == "__main__":
