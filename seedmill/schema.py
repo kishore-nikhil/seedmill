@@ -118,3 +118,59 @@ def build_json_schema_for_response(
         },
         "required": ["records"],
     }
+
+
+def to_strict_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """
+    Rewrite a schema from `build_json_schema_for_response` into the subset
+    hosted structured-output APIs accept under `strict: true`.
+
+    Those APIs require, at every object node, that `additionalProperties`
+    is false and that *every* declared property appears in `required` —
+    optionality is expressed by admitting null, not by omission. Our
+    builder does the opposite: nullable and defaulted fields are simply
+    left out of `required`.
+
+    So for each object: union every non-required property's type with
+    null, then mark all of them required. A field already wrapped in
+    `anyOf: [..., {"type": "null"}]` (the `nullable: true` case) is left
+    alone; only defaulted-but-not-nullable fields gain a null branch.
+
+    The rewrite is value-preserving for a local backend too — a record
+    that satisfies the strict schema satisfies the original.
+    """
+    def _walk(node: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(node, dict):
+            return node
+
+        out = dict(node)
+
+        if "anyOf" in out:
+            out["anyOf"] = [_walk(b) for b in out["anyOf"]]
+            return out
+
+        if out.get("type") == "array" and "items" in out:
+            out["items"] = _walk(out["items"])
+            return out
+
+        if out.get("type") == "object" and "properties" in out:
+            props = {name: _walk(spec) for name, spec in out["properties"].items()}
+            required = set(out.get("required", []))
+            for name, spec in props.items():
+                if name not in required:
+                    props[name] = _nullable(spec)
+            out["properties"] = props
+            out["required"] = list(props)
+            out["additionalProperties"] = False
+
+        return out
+
+    def _nullable(spec: dict[str, Any]) -> dict[str, Any]:
+        """Admit null, without double-wrapping an already-nullable branch."""
+        if "anyOf" in spec:
+            if any(b.get("type") == "null" for b in spec["anyOf"]):
+                return spec
+            return {"anyOf": [*spec["anyOf"], {"type": "null"}]}
+        return {"anyOf": [spec, {"type": "null"}]}
+
+    return _walk(schema)

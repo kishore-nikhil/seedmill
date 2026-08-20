@@ -1,8 +1,8 @@
 # seedmill
 
 **YAML in, training data out.** Config-driven synthetic data generation for
-LLM training sets, running entirely against local models (Ollama /
-llama.cpp). One engine, one CLI — *a new use case is a YAML file, not a new
+LLM training sets, running against local models (Ollama / llama.cpp) or a
+hosted API. One engine, one CLI — *a new use case is a YAML file, not a new
 script.*
 
 [![CI](https://github.com/kishore-nikhil/seedmill/actions/workflows/ci.yml/badge.svg)](https://github.com/kishore-nikhil/seedmill/actions/workflows/ci.yml)
@@ -26,7 +26,9 @@ engine behind it. Three things fall out of that:
 - **Splits are group-aware.** Whole concept groups go to one split, so eval
   measures generalization to unseen concepts rather than memorized phrasings.
 
-Local models only — there is no hosted-API backend yet.
+Local-first: Ollama and llama.cpp need no key and cost nothing per record.
+A hosted `openai` backend is there when you want a stronger teacher model —
+same YAML, same constrained decoding (see [Backends](#backends)).
 
 ```
 config/tasks/<task>.yaml   ← everything about a use case lives here
@@ -117,11 +119,58 @@ Producing records like:
  "positive_icon": "flame", "hard_negatives": ["wine-glass", "palette"]}
 ```
 
+## Backends
+
+| `backend:` | Talks to | Key | Constrained decoding via |
+|---|---|---|---|
+| `ollama` (default) | Ollama's native `/api/chat` | none | `format: <schema>` |
+| `openai_compat` | a local llama.cpp server | none | llama.cpp's `schema` extension |
+| `openai` | OpenAI, or anything with an OpenAI-compatible endpoint | `OPENAI_API_KEY` | standard `json_schema`, `strict: true` |
+
+The two local backends are not interchangeable by `base_url` alone — they
+send different request bodies. `openai_compat` is for llama.cpp
+specifically: the `schema` key it puts inside a `json_object` response
+format, and the `chat_template_kwargs` it sends for `think: false`, are
+llama.cpp extensions that a hosted API rejects with a 400. That is why
+`openai` is a separate backend rather than a different URL.
+
+```yaml
+model:
+  backend: openai
+  model: <model-id>           # required — no default, so nothing bills by accident
+  # base_url:                 # omit for OpenAI; set it for any other provider
+  # strict: false             # last resort if a provider chokes on the schema
+  params:                     # forwarded verbatim to the completions call
+    top_p: 0.9
+```
+
+Anything exposing an OpenAI-compatible endpoint works through the same
+backend — Gemini, for one, by pointing `base_url` at its compat endpoint
+and putting that key in `OPENAI_API_KEY`. Structured-output support varies
+between providers, so generate a handful of records first and confirm the
+enum fields actually came back constrained rather than assuming they did.
+
+Two differences from a local run are worth knowing before a long one:
+
+- **Enums need a schema rewrite.** Hosted `strict: true` requires
+  `additionalProperties: false` and *every* property listed in `required`;
+  optionality has to be expressed as a null branch instead. `fields:` is
+  translated to that shape automatically (`schema.to_strict_json_schema`),
+  so a `vocab:` field stays a hard decode-time constraint here too.
+- **Cost is reported, not assumed.** Token usage accumulates per run and
+  lands in the stats table next to the record counts. Rate limits are
+  handled by the SDK's own backoff, which honours `Retry-After` — start at
+  `--workers 1` and raise it once you know the tier's limit.
+
+`params:` is a passthrough rather than a fixed set of options because the
+knobs (`reasoning_effort`, `max_completion_tokens`, …) differ per provider
+and per model generation; pinning them in the client would date it.
+
 ## Anatomy of a task
 
 | Section        | What it does |
 |----------------|--------------|
-| `model`        | backend (`ollama` \| `openai_compat`), model name, `think: false` for reasoning models (both backends) |
+| `model`        | backend (`ollama` \| `openai_compat` \| `openai`), model name, `base_url`, `think: false` for reasoning models (local backends), `params:` passthrough (hosted) — see [Backends](#backends) |
 | `vocabularies` | named value sets loaded from files; fields with `vocab: <name>` are validated **and grammar-constrained at decode time** — the model cannot emit an out-of-vocabulary value. Three file shapes: grouped (`{group: [...]}`), flat list, or a mapping (`{slug: codepoint}`) whose **keys** are the vocabulary — so an app's own icon table can be the source of truth |
 | `seeds`        | optional iteration axis (e.g. concept groups). The engine loops seeds and generates `per_seed` records each, with patterned ids (`{seed}_{counter:03d}`) and resume support. Without `seeds`, the engine free-runs batches up to `generation.count` |
 | `fields`       | the record schema → pydantic validation + the constrained-decoding JSON schema |
@@ -180,13 +229,15 @@ Both were built for real datasets, not as demos.
 
 ## Notes
 
-- **Reasoning models**: gemma4 and Qwen3 think by default. Both backends
-  disable it via `think: false` — Ollama through its `think` flag, the
+- **Reasoning models**: gemma4 and Qwen3 think by default. Both local
+  backends disable it via `think: false` — Ollama through its `think` flag, the
   OpenAI-compat backend through
   `chat_template_kwargs.enable_thinking=false`, which llama.cpp forwards to
   the Jinja template. On llama.cpp the reasoning text goes to
   `reasoning_content` and never pollutes the parsed record, so leaving it
-  on only costs latency (~30% per batch, measured on Qwen3.8-27B).
+  on only costs latency (~30% per batch, measured on Qwen3.8-27B). The
+  hosted `openai` backend has no `think` flag — where a provider exposes
+  an equivalent, pass it through `params:`.
 - **Throughput on a local llama.cpp server** is decode-bound, not
   prompt-bound: ~14 s per record for Qwen3.8-27B Q4 on an M-series Mac,
   and `--workers 4` buys ~1.4x aggregate, not 4x, because the box is

@@ -6,7 +6,11 @@ import json
 
 import pytest
 
-from seedmill.schema import build_json_schema_for_response, build_schema_json
+from seedmill.schema import (
+    build_json_schema_for_response,
+    build_schema_json,
+    to_strict_json_schema,
+)
 
 
 def _record_schema(fields):
@@ -133,3 +137,74 @@ def test_schema_json_renders_nested_objects():
     assert out["cfg"].startswith("object | null: ")
     inner = json.loads(out["cfg"].split(": ", 1)[1])
     assert inner == {"kind": "Enum(a)", "n": "int"}
+
+
+# ── to_strict_json_schema ───────────────────────────────────────────────
+
+
+def _strict_record(fields):
+    """Unwrap the strict-rewritten schema down to the record properties."""
+    strict = to_strict_json_schema(build_json_schema_for_response(fields))
+    return strict["properties"]["records"]["items"]
+
+
+def test_strict_marks_every_property_required():
+    """The rule hosted APIs enforce: no property may be omitted."""
+    items = _strict_record(
+        {"id": {"type": "str"}, "note": {"type": "str", "nullable": True}}
+    )
+    assert set(items["required"]) == {"id", "note"}
+
+
+def test_strict_forbids_additional_properties_at_every_object():
+    items = _strict_record(
+        {"id": {"type": "str"}, "obj": {"type": "object", "fields": {"x": {"type": "str"}}}}
+    )
+    assert items["additionalProperties"] is False
+    assert items["properties"]["obj"]["additionalProperties"] is False
+
+
+def test_strict_makes_a_defaulted_field_nullable():
+    """Optionality has to move from `required` into the type, or the
+    model has no legal way to leave a defaulted field out."""
+    items = _strict_record({"n": {"type": "int", "default": 5}})
+    assert items["properties"]["n"] == {
+        "anyOf": [{"type": "integer"}, {"type": "null"}]
+    }
+
+
+def test_strict_does_not_double_wrap_an_already_nullable_field():
+    items = _strict_record({"note": {"type": "str", "nullable": True}})
+    assert items["properties"]["note"] == {
+        "anyOf": [{"type": "string"}, {"type": "null"}]
+    }
+
+
+def test_strict_preserves_enums_through_the_rewrite():
+    """The vocabulary constraint must survive, or the backend stops
+    enforcing the thing the tool exists to enforce."""
+    items = _strict_record({"icon": {"type": "str", "enum": ["a", "b"]}})
+    assert items["properties"]["icon"]["enum"] == ["a", "b"]
+
+
+def test_strict_recurses_into_array_items_and_nested_objects():
+    items = _strict_record(
+        {
+            "tags": {"type": "list", "items": {"type": "str", "enum": ["a"]}},
+            "obj": {
+                "type": "object",
+                "fields": {"x": {"type": "str"}, "y": {"type": "str", "nullable": True}},
+            },
+        }
+    )
+    assert items["properties"]["tags"]["items"]["enum"] == ["a"]
+    assert set(items["properties"]["obj"]["required"]) == {"x", "y"}
+
+
+def test_strict_leaves_the_original_schema_untouched():
+    """The same schema object is reused across a run; rewriting in place
+    would leak strict-mode shape into the local backends."""
+    original = build_json_schema_for_response({"n": {"type": "int", "default": 5}})
+    before = json.dumps(original, sort_keys=True)
+    to_strict_json_schema(original)
+    assert json.dumps(original, sort_keys=True) == before
