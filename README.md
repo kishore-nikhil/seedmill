@@ -8,6 +8,9 @@ script.*
 [![CI](https://github.com/kishore-nikhil/seedmill/actions/workflows/ci.yml/badge.svg)](https://github.com/kishore-nikhil/seedmill/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/seedmill.svg)](https://pypi.org/project/seedmill/)
+
+**[Documentation](https://kishore-nikhil.github.io/seedmill/)** — including the full [task YAML reference](https://kishore-nikhil.github.io/seedmill/task-reference/).
 
 ## Why
 

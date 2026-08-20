@@ -48,6 +48,11 @@ dependencies = [
 # (`dedup.embeddings: false` in every shipped task) because it pulls torch.
 embeddings = ["sentence-transformers>=2.2.0"]
 dev = ["pytest>=8.0", "ruff>=0.6.0"]
+# `typer` here is the CLI that regenerates docs/cli.md, not the library.
+# mkdocs is capped: the Material theme warns that MkDocs 2.0 removes the
+# plugin system with no migration path, so an unpinned CI would break the
+# docs build the day it releases.
+docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5", "typer-cli>=0.12"]
 
 [project.urls]
 Homepage = "https://github.com/kishore-nikhil/seedmill"
