@@ -6,6 +6,9 @@ Used instead of the OpenAI-compat endpoint for two capabilities it lacks:
   `reasoning` field and return empty `content` after burning the budget.
 - `format: <json schema>` — grammar-constrained decoding, so enum fields
   (like icon vocabularies) are guaranteed valid at generation time.
+
+Images ride on the message as base64 strings (see `images.py`); a vision
+model such as qwen3-vl reads them, a text model ignores or rejects them.
 """
 
 from __future__ import annotations
@@ -16,6 +19,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+
+from .images import ollama_messages
 
 
 @dataclass
@@ -35,7 +40,7 @@ class OllamaClient:
 
     def chat_json(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         temperature: float | None = None,
         schema: dict[str, Any] | None = None,
@@ -48,7 +53,7 @@ class OllamaClient:
         """
         payload: dict[str, Any] = {
             "model": self.model,
-            "messages": messages,
+            "messages": ollama_messages(messages),
             "stream": False,
             "think": self.think,
             "format": schema if schema is not None else "json",

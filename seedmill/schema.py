@@ -21,20 +21,24 @@ from typing import Any
 
 
 def build_schema_json(fields: dict[str, Any]) -> str:
-    """Build a compact JSON representation of the schema for the prompt."""
+    """
+    Build a compact JSON representation of the schema for the prompt.
+
+    A top-level object reads `"object: {...}"` and a top-level list of
+    objects `"list: [{...}]"`, the inner part being the sub-fields' shapes
+    as JSON. Below that, objects and lists of objects nest as plain JSON,
+    so `panels[].balloons[]` shows as `[{"balloons": [{...}]}]`. A list of
+    plain values stays `"list"`: its enum, if any, is usually a whole
+    vocabulary the prompt already carries as `$vocab_<name>`.
+    """
     schema: dict[str, Any] = {}
 
     for name, spec in fields.items():
-        if spec.get("type") == "object" and "fields" in spec:
+        shape = _shape(spec)
+        if isinstance(shape, (dict, list)):
             nullable = " | null" if spec.get("nullable") else ""
-            sub = {}
-            for fname, fspec in spec["fields"].items():
-                type_str = fspec.get("type", "str")
-                if enum := fspec.get("enum"):
-                    sub[fname] = f"Enum({', '.join(str(v) for v in enum)})"
-                else:
-                    sub[fname] = type_str
-            schema[name] = f"object{nullable}: {json.dumps(sub)}"
+            kind = "object" if isinstance(shape, dict) else "list"
+            schema[name] = f"{kind}{nullable}: {json.dumps(shape)}"
         elif enum := spec.get("enum"):
             schema[name] = f"Enum({', '.join(str(v) for v in enum)})"
         else:
@@ -43,6 +47,30 @@ def build_schema_json(fields: dict[str, Any]) -> str:
 
     return json.dumps(schema, indent=2)
 
+
+def _shape(spec: dict[str, Any]) -> Any:
+    """
+    One field's shape for the prompt sketch: a type string for a value,
+    a dict for an object, a one-element list for a list of objects.
+    """
+    if spec.get("type") == "object" and "fields" in spec:
+        return {fname: _nested_shape(fspec) for fname, fspec in spec["fields"].items()}
+    items = spec.get("items") or {}
+    if spec.get("type") == "list" and items.get("type") == "object" and "fields" in items:
+        return [_shape(items)]
+    if enum := spec.get("enum"):
+        return f"Enum({', '.join(str(v) for v in enum)})"
+    return spec.get("type", "str")
+
+
+def _nested_shape(spec: dict[str, Any]) -> Any:
+    """A sub-field's shape. JSON can't mark a dict nullable, so a nullable
+    object or list falls back to the top-level string form."""
+    shape = _shape(spec)
+    if isinstance(shape, (dict, list)) and spec.get("nullable"):
+        kind = "object" if isinstance(shape, dict) else "list"
+        return f"{kind} | null: {json.dumps(shape)}"
+    return shape
 
 
 def build_json_schema_for_response(

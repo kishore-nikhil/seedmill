@@ -90,6 +90,30 @@ date it, so whatever you put under `params:` goes to the completions call
 verbatim. Nothing is sent by default beyond model, messages, temperature and
 the response format.
 
+## Images
+
+`prompts.images` attaches images to the user message (see the
+[task reference](task-reference.md#images)). Every backend sends them, each
+in its own protocol's shape, and each needs a model that can see:
+
+| `backend:` | Sent as | Needs |
+|---|---|---|
+| `ollama` | base64 strings in the message's `images` | a vision model, e.g. `qwen3-vl:8b` |
+| `openai_compat` | `image_url` content parts with data URLs | llama-server started with the model's projector: `--mmproj <file>.gguf` |
+| `openai` | `image_url` content parts with data URLs | a vision-capable model |
+
+Images go ahead of the text in the message, which is where Ollama's chat
+templates put them, so the two protocols show the model the same thing.
+
+!!! warning "A text model doesn't always say so"
+    Depending on the server and model, a model that can't see may return an
+    error or may answer from the text alone. Run a few records first and
+    check they describe the image.
+
+On a hosted API, images are billed as input tokens by their size, and the
+cost shows up in the usage the run reports. Prepare the files at the size
+you need; seedmill never resizes them.
+
 ## Overriding at the command line
 
 ```bash

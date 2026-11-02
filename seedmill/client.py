@@ -2,7 +2,9 @@
 OpenAI-compatible client for local llama.cpp server.
 
 Wraps the openai library pointed at localhost:8080 (or configurable).
-Supports both regular chat completions and tool-calling mode.
+Supports both regular chat completions and tool-calling mode. Images on a
+message go out as OpenAI content parts, which llama-server accepts when it
+was started with the model's `--mmproj` projector.
 """
 
 from __future__ import annotations
@@ -14,6 +16,8 @@ from typing import Any
 
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
+
+from .images import openai_messages
 
 
 @dataclass
@@ -45,7 +49,7 @@ class LlamaClient:
 
     def chat(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         temperature: float | None = None,
         max_tokens: int | None = None,
@@ -54,7 +58,7 @@ class LlamaClient:
         """Send a chat completion request, optionally requesting JSON mode."""
         kwargs: dict[str, Any] = {
             "model": self.model,
-            "messages": messages,
+            "messages": openai_messages(messages),
             "temperature": temperature or self.default_temperature,
             "max_tokens": max_tokens or self.default_max_tokens,
         }
@@ -66,7 +70,7 @@ class LlamaClient:
 
     def chat_json(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         temperature: float | None = None,
         max_tokens: int | None = None,

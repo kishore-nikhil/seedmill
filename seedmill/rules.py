@@ -106,19 +106,34 @@ def check_field_bounds(
     Post-validation length/size checks from field specs
     (min_length/max_length for strings, min_items/max_items for lists).
     Kept out of the constrained-decoding schema for backend compatibility.
+
+    Walks into nested objects and list items, so a bound on
+    `panels[].balloons[].text` holds as well as one on a top-level field.
+    Nested issues name their path: `panels[0].balloons[2].text too long`.
     """
-    issues = []
+    issues: list[str] = []
     for fname, spec in fields.items():
-        value = record.get(fname)
-        if isinstance(value, str):
-            n = len(value.strip())
-            if "min_length" in spec and n < spec["min_length"]:
-                issues.append(f"{fname} too short ({n} chars)")
-            if "max_length" in spec and n > spec["max_length"]:
-                issues.append(f"{fname} too long ({n} chars)")
-        elif isinstance(value, list):
-            if "min_items" in spec and len(value) < spec["min_items"]:
-                issues.append(f"{fname} has {len(value)} items (min {spec['min_items']})")
-            if "max_items" in spec and len(value) > spec["max_items"]:
-                issues.append(f"{fname} has {len(value)} items (max {spec['max_items']})")
+        issues.extend(_value_bounds(record.get(fname), spec, fname))
+    return issues
+
+
+def _value_bounds(value: Any, spec: dict[str, Any], name: str) -> list[str]:
+    issues: list[str] = []
+    if isinstance(value, str):
+        n = len(value.strip())
+        if "min_length" in spec and n < spec["min_length"]:
+            issues.append(f"{name} too short ({n} chars)")
+        if "max_length" in spec and n > spec["max_length"]:
+            issues.append(f"{name} too long ({n} chars)")
+    elif isinstance(value, list):
+        if "min_items" in spec and len(value) < spec["min_items"]:
+            issues.append(f"{name} has {len(value)} items (min {spec['min_items']})")
+        if "max_items" in spec and len(value) > spec["max_items"]:
+            issues.append(f"{name} has {len(value)} items (max {spec['max_items']})")
+        item_spec = spec.get("items") or {}
+        for i, item in enumerate(value):
+            issues.extend(_value_bounds(item, item_spec, f"{name}[{i}]"))
+    elif isinstance(value, dict):
+        for fname, fspec in (spec.get("fields") or {}).items():
+            issues.extend(_value_bounds(value.get(fname), fspec, f"{name}.{fname}"))
     return issues

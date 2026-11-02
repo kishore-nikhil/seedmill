@@ -28,6 +28,7 @@ from typing import Any
 
 from openai import OpenAI
 
+from .images import openai_messages
 from .schema import to_strict_json_schema
 
 
@@ -78,7 +79,7 @@ class OpenAIClient:
 
     def chat_json(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         temperature: float | None = None,
         schema: dict[str, Any] | None = None,
@@ -104,7 +105,7 @@ class OpenAIClient:
 
         resp = self._client.chat.completions.create(
             model=self.model,
-            messages=messages,
+            messages=openai_messages(messages),
             temperature=(
                 temperature if temperature is not None else self.default_temperature
             ),
