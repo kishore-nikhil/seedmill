@@ -208,3 +208,100 @@ def test_strict_leaves_the_original_schema_untouched():
     before = json.dumps(original, sort_keys=True)
     to_strict_json_schema(original)
     assert json.dumps(original, sort_keys=True) == before
+
+
+def test_schema_json_nests_lists_of_objects():
+    """Panels holding balloons: the prompt has to show the second level,
+    not just "list"."""
+    out = json.loads(
+        build_schema_json(
+            {
+                "panels": {
+                    "type": "list",
+                    "items": {
+                        "type": "object",
+                        "fields": {
+                            "order": {"type": "int"},
+                            "box": {"type": "list", "items": {"type": "int"}},
+                            "balloons": {
+                                "type": "list",
+                                "items": {
+                                    "type": "object",
+                                    "fields": {
+                                        "kind": {"type": "str", "enum": ["speech", "thought"]}
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                "tags": {"type": "list", "items": {"type": "str", "enum": ["a", "b"]}},
+            }
+        )
+    )
+    assert out["panels"].startswith("list: ")
+    assert json.loads(out["panels"].split(": ", 1)[1]) == [
+        {"order": "int", "box": "list", "balloons": [{"kind": "Enum(speech, thought)"}]}
+    ]
+    # A list of plain values stays "list": its enum is usually a whole
+    # vocabulary that $vocab_<name> already puts in the prompt.
+    assert out["tags"] == "list"
+
+
+def test_schema_json_nests_objects_in_objects():
+    out = json.loads(
+        build_schema_json(
+            {
+                "cfg": {
+                    "type": "object",
+                    "fields": {
+                        "inner": {"type": "object", "fields": {"n": {"type": "int"}}},
+                        "maybe": {
+                            "type": "object",
+                            "nullable": True,
+                            "fields": {"n": {"type": "int"}},
+                        },
+                    },
+                }
+            }
+        )
+    )
+    inner = json.loads(out["cfg"].split(": ", 1)[1])
+    assert inner["inner"] == {"n": "int"}
+    assert inner["maybe"] == 'object | null: {"n": "int"}'
+
+
+def test_response_schema_nests_lists_of_objects():
+    """Decode-time constraint two lists down, so an enum on a balloon holds
+    at generation, not just at validation."""
+    schema = build_json_schema_for_response(
+        {
+            "panels": {
+                "type": "list",
+                "items": {
+                    "type": "object",
+                    "fields": {
+                        "balloons": {
+                            "type": "list",
+                            "items": {
+                                "type": "object",
+                                "fields": {
+                                    "kind": {"type": "str", "enum": ["speech", "thought"]}
+                                },
+                            },
+                        }
+                    },
+                },
+            }
+        }
+    )
+    panel = schema["properties"]["records"]["items"]["properties"]["panels"]["items"]
+    balloon = panel["properties"]["balloons"]["items"]
+    assert balloon["properties"]["kind"]["enum"] == ["speech", "thought"]
+    assert balloon["required"] == ["kind"]
+
+    strict = to_strict_json_schema(schema)
+    strict_balloon = strict["properties"]["records"]["items"]["properties"]["panels"]["items"][
+        "properties"
+    ]["balloons"]["items"]
+    assert strict_balloon["additionalProperties"] is False

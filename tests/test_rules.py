@@ -248,3 +248,53 @@ def test_multiple_violations_accumulate():
         {"a": {"min_length": 5}, "b": {"max_items": 2}},
     )
     assert len(issues) == 2
+
+
+def test_bounds_reach_into_lists_of_objects_and_name_the_path():
+    """A bound three levels down is still a bound, and the issue says which
+    balloon, so the retry prompt points at it."""
+    fields = {
+        "panels": {
+            "type": "list",
+            "max_items": 2,
+            "items": {
+                "type": "object",
+                "fields": {
+                    "balloons": {
+                        "type": "list",
+                        "items": {"type": "object", "fields": {"text": {"max_length": 5}}},
+                    },
+                    "box": {"type": "list", "items": {"type": "int"}, "min_items": 4},
+                },
+            },
+        }
+    }
+    record = {
+        "panels": [
+            {"balloons": [{"text": "ok"}, {"text": "much too long"}], "box": [1, 2, 3, 4]},
+            {"balloons": [], "box": [1, 2]},
+            {"balloons": [], "box": [1, 2, 3, 4]},
+        ]
+    }
+    assert check_field_bounds(record, fields) == [
+        "panels has 3 items (max 2)",
+        "panels[0].balloons[1].text too long (13 chars)",
+        "panels[1].box has 2 items (min 4)",
+    ]
+
+
+def test_bounds_reach_into_nested_objects_and_list_items():
+    fields = {
+        "cfg": {"type": "object", "fields": {"name": {"min_length": 3}}},
+        "tags": {"type": "list", "items": {"max_length": 3}},
+    }
+    record = {"cfg": {"name": "ab"}, "tags": ["abc", "abcd"]}
+    assert check_field_bounds(record, fields) == [
+        "cfg.name too short (2 chars)",
+        "tags[1] too long (4 chars)",
+    ]
+
+
+def test_null_nested_object_has_no_bounds_to_break():
+    fields = {"cfg": {"type": "object", "nullable": True, "fields": {"name": {"min_length": 3}}}}
+    assert check_field_bounds({"cfg": None}, fields) == []

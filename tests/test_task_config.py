@@ -215,3 +215,174 @@ def test_seeds_non_dict_values_wrap_into_default_group(tmp_path: Path):
     seeds: Seeds = load_task(p).seeds
     assert seeds.groups == {"default": ["x", "y"]}
     assert seeds.value_field == "seed"  # documented default
+
+
+def test_inject_vocab_enums_reaches_objects_inside_lists(tmp_path: Path):
+    """panels[].balloons[].kind: a vocab two lists down still becomes an enum."""
+    p = tmp_path / "zz_t.yaml"
+    p.write_text(
+        yaml.safe_dump(
+            {
+                "name": "t",
+                "vocabularies": {"kinds": ["speech", "thought"]},
+                "fields": {
+                    "panels": {
+                        "type": "list",
+                        "items": {
+                            "type": "object",
+                            "fields": {
+                                "balloons": {
+                                    "type": "list",
+                                    "items": {
+                                        "type": "object",
+                                        "fields": {"kind": {"type": "str", "vocab": "kinds"}},
+                                    },
+                                },
+                                "tags": {"type": "list", "items": {"vocab": "kinds"}},
+                            },
+                        },
+                    }
+                },
+                "prompts": {"system": "s", "user": "u"},
+            }
+        )
+    )
+    panel = load_task(p).fields["panels"]["items"]["fields"]
+    assert panel["balloons"]["items"]["fields"]["kind"]["enum"] == ["speech", "thought"]
+    assert panel["tags"]["items"] == {
+        "vocab": "kinds", "type": "str", "enum": ["speech", "thought"]
+    }
+
+
+# ── file seeds ──────────────────────────────────────────────────────────
+
+
+def _file_task(tmp_path: Path, seeds: dict, prompts: dict | None = None) -> Path:
+    p = tmp_path / "zz_files_task.yaml"
+    p.write_text(
+        yaml.safe_dump(
+            {
+                "name": "t",
+                "fields": {"a": {"type": "str"}},
+                "prompts": prompts or {"system": "s", "user": "u"},
+                "seeds": seeds,
+            }
+        )
+    )
+    return p
+
+
+def _touch(root: Path, *names: str) -> None:
+    for name in names:
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"\x89PNG")
+
+
+def test_file_seeds_one_per_file_grouped_by_first_folder(tmp_path: Path):
+    """The glob is relative and not under the cwd, so this also exercises
+    the fall-back to the task YAML's directory."""
+    _touch(
+        tmp_path / "zz_scans",
+        "nemo/1906-08-26.png",
+        "nemo/1906-08-19.png",
+        "krazy/1906-08-26.png",
+        "cover.png",
+        "nemo/notes.txt",
+    )
+    seeds = load_task(_file_task(tmp_path, {"files": "zz_scans/**/*.png"})).seeds
+
+    # Folders stay in the seed, so the two 1906-08-26 pages don't collide.
+    assert seeds.work_list() == [
+        ("zz_scans", "cover.png"),
+        ("krazy", "krazy/1906-08-26.png"),
+        ("nemo", "nemo/1906-08-19.png"),
+        ("nemo", "nemo/1906-08-26.png"),
+    ]
+    page = tmp_path / "zz_scans/nemo/1906-08-26.png"
+    assert seeds.paths["nemo/1906-08-26.png"] == page.resolve()
+    assert seeds.per_seed == 1  # one record per file, unless asked
+
+
+def test_file_seeds_from_a_list_of_globs(tmp_path: Path):
+    _touch(tmp_path / "zz_a", "x.png")
+    _touch(tmp_path / "zz_b", "y.jpg")
+    seeds = load_task(
+        _file_task(tmp_path, {"files": ["zz_a/*.png", "zz_b/*.jpg"], "per_seed": 2})
+    ).seeds
+    assert seeds.groups == {"zz_a": ["x.png"], "zz_b": ["y.jpg"]}
+    assert seeds.per_seed == 2
+
+
+def test_file_seeds_two_files_making_one_seed_is_an_error(tmp_path: Path):
+    _touch(tmp_path / "zz_a", "x.png")
+    _touch(tmp_path / "zz_b", "x.png")
+    with pytest.raises(ValueError, match="two files make the seed 'x.png'"):
+        load_task(_file_task(tmp_path, {"files": ["zz_a/*.png", "zz_b/*.png"]}))
+
+
+def test_file_seeds_overlapping_globs_count_a_file_once(tmp_path: Path):
+    _touch(tmp_path / "zz_a", "x.png")
+    seeds = load_task(_file_task(tmp_path, {"files": ["zz_a/*.png", "zz_a/x.png"]})).seeds
+    assert seeds.work_list() == [("zz_a", "x.png")]
+
+
+def test_file_seeds_matching_nothing_fail_before_the_run(tmp_path: Path):
+    with pytest.raises(ValueError, match="matched no files"):
+        load_task(_file_task(tmp_path, {"files": "zz_nowhere/*.png"}))
+
+
+def test_file_seeds_cannot_be_mixed_with_listed_seeds(tmp_path: Path):
+    _touch(tmp_path / "zz_a", "x.png")
+    with pytest.raises(ValueError, match="can't be combined"):
+        load_task(_file_task(tmp_path, {"files": "zz_a/*.png", "values": ["s"]}))
+
+
+# ── prompts.images ──────────────────────────────────────────────────────
+
+
+def test_images_come_out_of_prompts_onto_the_task(tmp_path: Path):
+    _touch(tmp_path / "zz_a", "x.png")
+    task = load_task(
+        _file_task(
+            tmp_path,
+            {"files": "zz_a/*.png"},
+            {"system": "s", "user": "u", "images": "$seed_path"},
+        )
+    )
+    assert task.images == ["$seed_path"]
+    assert "images" not in task.prompts
+    assert task.raw["prompts"]["images"] == "$seed_path"  # hooks still see the YAML as written
+
+
+def test_seed_path_image_needs_file_seeds(tmp_path: Path):
+    p = tmp_path / "zz_t.yaml"
+    p.write_text(
+        yaml.safe_dump(
+            {
+                "name": "t",
+                "fields": {"a": {"type": "str"}},
+                "prompts": {"system": "s", "user": "u", "images": ["$seed_path"]},
+                "seeds": {"values": ["x"]},
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="only file seeds"):
+        load_task(p)
+
+
+def test_a_plain_image_path_is_checked_at_load(tmp_path: Path):
+    _touch(tmp_path / "zz_a", "x.png")
+    (tmp_path / "zz_a" / "scan.tiff").write_bytes(b"II*")
+    seeds = {"files": "zz_a/*.png"}
+
+    ok = {"system": "s", "user": "u", "images": ["$seed_path", "zz_a/x.png"]}
+    assert load_task(_file_task(tmp_path, seeds, ok)).images == ["$seed_path", "zz_a/x.png"]
+
+    missing = {"system": "s", "user": "u", "images": ["zz_a/gone.png"]}
+    with pytest.raises(ValueError, match="not found"):
+        load_task(_file_task(tmp_path, seeds, missing))
+
+    tiff = {"system": "s", "user": "u", "images": ["zz_a/scan.tiff"]}
+    with pytest.raises(ValueError, match="can't send '.tiff'"):
+        load_task(_file_task(tmp_path, seeds, tiff))

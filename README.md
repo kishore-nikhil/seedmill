@@ -186,10 +186,10 @@ and per model generation; pinning them in the client would date it.
 |----------------|--------------|
 | `model`        | backend (`ollama` \| `openai_compat` \| `openai`), model name, `base_url`, `think: false` for reasoning models (local backends), `params:` passthrough (hosted) — see [Backends](#backends) |
 | `vocabularies` | named value sets loaded from files; fields with `vocab: <name>` are validated **and grammar-constrained at decode time** — the model cannot emit an out-of-vocabulary value. Three file shapes: grouped (`{group: [...]}`), flat list, or a mapping (`{slug: codepoint}`) whose **keys** are the vocabulary — so an app's own icon table can be the source of truth |
-| `seeds`        | optional iteration axis (e.g. concept groups). The engine loops seeds and generates `per_seed` records each, with patterned ids (`{seed}_{counter:03d}`) and resume support. Without `seeds`, the engine free-runs batches up to `generation.count` |
-| `fields`       | the record schema → pydantic validation + the constrained-decoding JSON schema |
+| `seeds`        | optional iteration axis (e.g. concept groups). The engine loops seeds and generates `per_seed` records each, with patterned ids (`{seed}_{counter:03d}`) and resume support. `files: scans/**/*.jpg` makes one seed per file instead, for labelling images. Without `seeds`, the engine free-runs batches up to `generation.count` |
+| `fields`       | the record schema → pydantic validation + the constrained-decoding JSON schema. Objects and lists of objects nest to any depth |
 | `rules`        | declarative cross-field checks with auto-fix: `not_in`, `contains`, `disjoint`, `unique_items`, `exclusive_switch` (discriminated unions) |
-| `prompts`      | `system` / `user` / `retry` templates. `$var` substitution: `$n`, `$seed`, `$group`, `$vocab_<name>`, `$schema_json`, `$examples`, `$description` |
+| `prompts`      | `system` / `user` / `retry` templates. `$var` substitution: `$n`, `$seed`, `$group`, `$seed_path`, `$vocab_<name>`, `$schema_json`, `$examples`, `$description`. `images:` attaches images to the user message for a vision model, on every backend |
 | `generation`   | batch size, retries, temperature, `workers` (concurrent seeds), dedup (hash always; embeddings optional) |
 | `exports`      | split ratios and `split_by` group field — group-aware splits so eval measures generalization to *unseen* concepts |
 | `hooks`        | optional Python file for logic YAML shouldn't express: `postprocess(record, ctx)` and `EXPORTERS = {"fmt": fn(record, ctx)}` |

@@ -4,13 +4,14 @@ Task-driven generation engine.
 One loop for every use case. Reads a TaskConfig and runs either:
 
 - seeded mode (task has `seeds`): iterate seed values (e.g. concept
-  groups), generate `per_seed` records each, assign patterned ids, and
-  stamp the seed/group into each record; or
+  groups, or files such as page scans), generate `per_seed` records each,
+  assign patterned ids, and stamp the seed/group into each record; or
 - batch mode: generate `generation.count` records in batches.
 
 Pipeline per batch: constrained-decode JSON → pydantic validation →
 declarative rules (with auto-fix) → field bounds → hooks.postprocess →
 dedup → append to JSONL. Reruns resume from the existing output file.
+Images named in `prompts.images` ride on the user message (see images.py).
 """
 
 from __future__ import annotations
@@ -27,9 +28,10 @@ from typing import Any, Protocol
 from rich.console import Console
 
 from .dedup import DedupFilter
+from .images import load_image
 from .rules import apply_rules, check_field_bounds
 from .schema import build_json_schema_for_response, build_schema_json
-from .task_config import TaskConfig
+from .task_config import TaskConfig, _resolve_path
 from .validator import build_pydantic_model, validate_single
 
 console = Console()
@@ -40,7 +42,7 @@ class JsonChatClient(Protocol):
 
     def chat_json(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         temperature: float | None = None,
         schema: dict[str, Any] | None = None,
@@ -98,7 +100,14 @@ class TaskEngine:
             build_json_schema_for_response(task.fields) if constrained else None
         )
 
-        dedup_cfg = gen.get("dedup") or {}
+        # Dedup stops a generator repeating itself. Records about files are
+        # descriptions of different things, two of which may well match, so
+        # file seeds leave it off unless the task asks for it.
+        dedup_spec = gen.get("dedup")
+        self.dedup_enabled = dedup_spec is not False and not (
+            dedup_spec is None and task.seeds is not None and task.seeds.paths
+        )
+        dedup_cfg = dedup_spec or {}
         self.dedup_fields: list[str] = dedup_cfg.get(
             "fields", list(task.fields.keys())
         )
@@ -129,11 +138,20 @@ class TaskEngine:
 
     # ── shared batch machinery ──────────────────────────────────────
 
-    def _messages(self, variables: dict[str, Any]) -> list[dict[str, str]]:
+    def _messages(self, variables: dict[str, Any]) -> list[dict[str, Any]]:
         merged = {**self.base_vars, **variables}
+        user: dict[str, Any] = {
+            "role": "user", "content": _render(self.task.prompts["user"], merged)
+        }
+        if self.task.images:
+            base_dir = self.task.path.parent
+            user["images"] = [
+                load_image(_resolve_path(_render(entry, merged), base_dir))
+                for entry in self.task.images
+            ]
         return [
             {"role": "system", "content": _render(self.task.prompts["system"], merged)},
-            {"role": "user", "content": _render(self.task.prompts["user"], merged)},
+            user,
         ]
 
     def _process_raw(
@@ -186,6 +204,8 @@ class TaskEngine:
         }
 
     def _dedup_one(self, record: dict[str, Any]) -> bool:
+        if not self.dedup_enabled:
+            return True
         subset = {f: record.get(f) for f in self.dedup_fields}
         with self._lock:
             accepted, _ = self.dedup.filter_batch([subset], check_quality=False)
@@ -269,7 +289,9 @@ class TaskEngine:
             needed = seeds.per_seed - existing.get(seed, 0)
             if needed <= 0:
                 return
-            console.print(f"[bold]({i}/{len(work)})[/bold] {group}/{seed} — need {needed}")
+            # A file seed already starts with its group's folder.
+            label = seed if seeds.paths else f"{group}/{seed}"
+            console.print(f"[bold]({i}/{len(work)})[/bold] {label} — need {needed}")
 
             collected: list[dict[str, Any]] = []
             attempts = 0
@@ -277,14 +299,14 @@ class TaskEngine:
             while len(collected) < needed and attempts < max_attempts:
                 attempts += 1
                 n = min(self.batch_size, needed - len(collected))
-                batch = self._generate_batch(
-                    {
-                        "seed": seed,
-                        "seed_readable": seed.replace("_", " "),
-                        "group": group,
-                    },
-                    n,
-                )
+                variables = {
+                    "seed": seed,
+                    "seed_readable": seed.replace("_", " "),
+                    "group": group,
+                }
+                if seed in seeds.paths:
+                    variables["seed_path"] = str(seeds.paths[seed])
+                batch = self._generate_batch(variables, n)
                 for rec in batch:
                     if self._dedup_one(rec):
                         collected.append(rec)

@@ -116,8 +116,65 @@ generation:
     threshold: 0.9
 ```
 
-Off by default because it pulls torch. Hash-based exact dedup always runs
-regardless.
+Off by default because it pulls torch. Hash-based exact dedup runs regardless,
+unless dedup is off altogether (`dedup: false`, or file seeds).
+
+## Label a folder of images
+
+One record per image, from a local vision model. File seeds make each image
+a seed; `prompts.images` attaches it to the call.
+
+```yaml
+name: comic panels
+model:
+  backend: ollama
+  model: qwen3-vl:8b
+
+seeds:
+  files: scans/**/*.jpg      # scans/<strip>/<date>.jpg
+  value_field: page
+  group_field: strip
+
+fields:
+  panels:
+    type: list
+    items:
+      type: object
+      fields:
+        order: {type: int}
+        balloons:
+          type: list
+          items:
+            type: object
+            fields:
+              kind: {type: str, enum: [speech, thought, caption]}
+              text: {type: str, min_length: 1}
+
+prompts:
+  system: |
+    You transcribe comic strip pages. Return JSON matching:
+    $schema_json
+  user: |
+    Transcribe page $seed: every panel in reading order, and every balloon
+    in each panel. Return {"records": [one record]}.
+  images: [$seed_path]
+
+exports:
+  split_by: strip
+```
+
+Each record comes out with `page` and `strip` stamped in, so it joins back to
+its file. A rerun skips pages already in the output. To redo one, delete its
+line and run with `--seed nemo/1906-08-26.jpg`.
+
+Two things to know before a long run:
+
+- **Treat the output as a draft.** A vision model misreads lettering and
+  invents boxes. Validation catches the wrong shape, not the wrong word, so
+  plan for a person to review the records.
+- **Size the images first.** They are sent as they are. A 6,000-pixel scan
+  costs time locally and money on a hosted API, and the model downsamples it
+  anyway.
 
 ## Point a task at a different model for one run
 

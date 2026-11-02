@@ -8,10 +8,10 @@ name:           # required — identifies the task and names the output file
 description:    # shown by `seedmill tasks`, and available as $description
 model:          # backend, model, sampling — see Backends
 vocabularies:   # named value sets that become decode-time constraints
-seeds:          # optional coverage axis
+seeds:          # optional coverage axis, or one seed per file
 fields:         # the record schema
 rules:          # cross-field checks, with auto-fix
-prompts:        # system / user / retry templates
+prompts:        # system / user / retry templates, and images to attach
 examples:       # few-shot records rendered into $examples
 generation:     # batch size, retries, temperature, workers, dedup
 exports:        # splits and formats
@@ -110,6 +110,43 @@ A flat list instead of a mapping is treated as one group named `default`.
     matches on the seed value, not on ids — `id_pattern` only names records
     and continues the counter, so resume works with or without one.
 
+### Seeds from files
+
+`files:` makes one seed per file instead: a glob, or a list of globs. This is
+the shape for labelling a folder of images (or anything else on disk) rather
+than generating from concepts.
+
+```yaml
+seeds:
+  files: scans/**/*.jpg      # or a list: [scans/nemo/*.jpg, scans/krazy/*.jpg]
+  value_field: page
+  group_field: strip
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `files` | — | glob or list of globs; `**` matches any depth. Can't be combined with `values` or `file` |
+| `per_seed` | `1` | records per file |
+
+The other keys (`value_field`, `group_field`, `id_pattern`) mean what they
+mean above.
+
+- **The seed** is the file's path below the glob's fixed part:
+  `scans/nemo/1906-08-26.jpg` under `scans/**/*.jpg` is seed
+  `nemo/1906-08-26.jpg`. The folders stay in, so two strips' pages of the
+  same date stay two seeds, and resume matches on it like any other seed.
+- **The group** is the first folder below the fixed part (`nemo`), or the
+  fixed part's own folder for files directly in it. Name it in
+  `exports.split_by` to keep each folder in one split.
+- **`$seed_path`** is the file's absolute path, for `prompts.images` or a
+  hook. Hooks also get it as `ctx["variables"]["seed_path"]`.
+- **Dedup is off** unless `generation.dedup` is set: two files can rightly
+  get the same record.
+
+Globs resolve from the working directory first, then the task YAML's
+directory, as other task paths do. A glob that matches nothing is an error
+before the run, and so are two files that would make the same seed.
+
 ## fields
 
 The record schema. Drives three things at once: pydantic validation, the
@@ -149,6 +186,36 @@ fields:
 | `description` | carried into the schema the model sees |
 | `min_length` / `max_length` | string bounds, checked after validation |
 | `min_items` / `max_items` | list bounds, checked after validation |
+
+### Nesting
+
+`type: object` takes `fields`, and `type: list` takes `items`, which can
+itself be an object. They nest to any depth, and every level gets the same
+treatment: pydantic validation, the decode-time schema, `vocab:` resolution
+and the bounds checks.
+
+```yaml
+fields:
+  panels:
+    type: list
+    max_items: 12
+    items:
+      type: object
+      fields:
+        order: {type: int}
+        box: {type: list, items: {type: int}, min_items: 4, max_items: 4}
+        balloons:
+          type: list
+          items:
+            type: object
+            fields:
+              kind: {type: str, enum: [speech, thought, caption, sound]}
+              text: {type: str, min_length: 1, max_length: 200}
+```
+
+A bound below the top level names its path when it fails, as in
+`panels[2].balloons[0].text too long (214 chars)`, so the retry prompt points
+the model at the right balloon.
 
 !!! info "Why bounds are not in the decode schema"
     `min_length` and friends are checked *after* generation rather than
@@ -195,7 +262,8 @@ to be null.
 
 ## prompts
 
-`system` and `user` are required; `retry` has a built-in default.
+`system` and `user` are required; `retry` has a built-in default; `images`
+is optional.
 
 ```yaml
 prompts:
@@ -207,6 +275,7 @@ prompts:
     These failed validation:
     $errors
     Regenerate exactly $n valid records.
+  images: [$seed_path]    # optional; attached to the user message
 ```
 
 `$var` substitution, available in `system` and `user`:
@@ -220,8 +289,33 @@ prompts:
 | `$vocab_<name>` | one entry per vocabulary |
 | `$seed`, `$group` | seeded mode only |
 | `$seed_readable` | `$seed` with underscores as spaces |
+| `$seed_path` | file seeds only: the seed file's absolute path |
 
 `retry` receives only `$errors` (the first five, one per line) and `$n`.
+
+### images
+
+A path, or a list of them, attached to the user message for a vision model.
+Each entry is a `$var` template rendered per batch, so `$seed_path` attaches
+each file seed's own image. A plain path (a reference sheet every call
+should see, say) is the same image on every call.
+
+```yaml
+prompts:
+  images: [$seed_path, ref/lettering-key.png]
+```
+
+- **Formats:** `.png`, `.jpg`/`.jpeg`, `.webp`, `.gif`. Anything else is an
+  error, before the run for a plain path.
+- **Size:** the file is sent as it is, never resized or re-encoded. Prepare
+  images at the size the model reads best: Ollama and llama.cpp resize to
+  the model's own input, and a hosted API bills by the image's size.
+- **Retries** resend the images with the error feedback.
+- **The model has to be a vision model.** See [Backends](backends.md#images)
+  for what each backend needs.
+
+Paths resolve like other task paths: working directory first, then the task
+YAML's directory.
 
 !!! tip "Prompt order matters for local throughput"
     Put per-seed text at the **end** of the user prompt. Everything before
@@ -243,13 +337,14 @@ YAML mappings, shaped like the records you want back.
 | `max_retries` | `2` | error-feedback retries per batch |
 | `temperature` | `0.8` | sampling temperature |
 | `workers` | `1` | concurrent seeds in seeded mode |
+| `dedup` | on; off for file seeds | `false` turns dedup off entirely |
 | `dedup.fields` | all fields | fields hashed for exact-duplicate detection |
 | `dedup.embeddings` | `false` | near-duplicate filtering by cosine similarity |
 | `dedup.threshold` | `0.92` | cosine similarity above which a record is a duplicate |
 
 `dedup.embeddings` is off by default because it pulls `sentence-transformers`
 (and therefore torch); install the `embeddings` extra before turning it on.
-Hash-based exact dedup always runs.
+Hash-based exact dedup runs whenever dedup is on.
 
 !!! note "`workers` on a local model"
     Throughput on a local server is decode-bound, not prompt-bound. On an
